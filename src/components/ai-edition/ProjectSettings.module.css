@@ -1,0 +1,21 @@
+/* The Settings dialog: one project's frame, resolution, frame rate and framing. */
+.body { display: grid; gap: 18px; }
+.empty { margin: 0; padding: 18px; border: 1px dashed var(--border-hi); border-radius: var(--r-md); color: var(--muted); font-size: 12.5px; text-align: center; }
+.section { display: grid; gap: 9px; }
+.section h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--fg-2); }
+.hint { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+.choice { display: grid; justify-items: center; gap: 6px; padding: 10px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--fg-2); font: inherit; font-size: 12px; cursor: pointer; text-align: center; }
+.choice:hover:not(:disabled) { background: var(--surface-2); }
+.choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-wash); color: var(--fg); }
+.choice:disabled { opacity: .5; cursor: default; }
+.choice strong { color: var(--fg); font-size: 12.5px; }
+.choice small { color: var(--muted); font-size: 10.5px; }
+/* A little frame in the ratio's own shape. */
+.shape { display: grid; place-items: center; height: 38px; }
+.shape span { display: block; border: 2px solid currentColor; border-radius: 3px; }
+.choice[aria-pressed="true"] .shape span { color: var(--accent); }
+.wide { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.wide .choice { justify-items: start; text-align: left; padding: 11px 12px; }
+.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); color: var(--fg-2); font-size: 12px; }
+.summary strong { color: var(--fg); font-variant-numeric: tabular-nums; }

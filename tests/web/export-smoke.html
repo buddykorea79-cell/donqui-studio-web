@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Donqui browser export smoke test</title>
+		<style>
+			body { background: #10151b; color: #eef3f8; font: 16px system-ui; max-width: 900px; margin: 48px auto; padding: 0 20px; }
+			button, a { display: inline-block; padding: 12px 20px; background: #14b8a6; color: #07131a; border: 0; border-radius: 8px; }
+			[hidden] { display: none; }
+			button:disabled { opacity: 0.5; }
+			pre { white-space: pre-wrap; padding: 20px; background: #19232d; }
+			video { display: block; width: 100%; max-width: 640px; margin-top: 24px; }
+		</style>
+	</head>
+	<body>
+		<h1>Real browser codec smoke test</h1>
+		<p>This developer-only page creates a PNG and WAV, imports the repository's sample video, exports a two-second edited timeline, and decodes the resulting file to verify frames, captions, video content, timing, and audio gain. No media leaves the browser.</p>
+		<button id="run" type="button">Run browser export test</button>
+		<a id="download" hidden>Download result</a>
+		<pre id="result" aria-live="polite">Ready</pre>
+		<video id="video" controls></video>
+		<script type="module" src="./export-smoke.js"></script>
+	</body>
+</html>

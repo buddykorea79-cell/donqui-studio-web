@@ -1,0 +1,60 @@
+/* Media's timeline, docked under the page: the soundtrack above, the composition below it. */
+.timeline { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; border-top: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.title { font-weight: 600; color: var(--fg-emphasis, var(--fg)); }
+.summary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.summary strong { color: var(--fg-2); }
+.summary [data-tone="ok"] { display: inline-flex; align-items: center; gap: 3px; color: var(--success); font-weight: 600; }
+.summary [data-tone="off"] { color: var(--warn); font-weight: 600; }
+.fitButton { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent); color: var(--accent-on, var(--bg)); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fitButton:hover:not(:disabled) { filter: brightness(1.05); }
+.fitButton:disabled { opacity: .45; cursor: default; }
+.snap { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-size: 11.5px; }
+
+.body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; overflow-y: auto; }
+.heads { border-right: 1px solid var(--border); background: var(--surface); }
+.rulerSpacer { height: 24px; border-bottom: 1px solid var(--border); }
+.head { display: flex; align-items: center; gap: 7px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.audioHead { height: 56px; }
+.videoHead { height: 76px; }
+.headLabel { flex: 1; min-width: 0; display: grid; color: var(--fg); font-size: 12px; font-weight: 600; }
+.headLabel small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10.5px; font-weight: 400; }
+.warn { color: var(--warn); flex-shrink: 0; }
+
+.scroller { overflow-x: auto; overflow-y: hidden; min-width: 0; }
+.canvas { position: relative; min-width: 100%; }
+.ruler { position: relative; height: 24px; border-bottom: 1px solid var(--border); background: var(--surface-2); cursor: pointer; user-select: none; }
+.tick { position: absolute; top: 0; bottom: 0; padding: 5px 0 0 4px; border-left: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+
+.audioLane { position: relative; height: 56px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.audioClip { position: absolute; top: 6px; bottom: 12px; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--warn) 22%, var(--surface-2)); pointer-events: none; }
+.audioClip[data-kind="music"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 24%, var(--surface-2)); }
+.audioClip > div { position: absolute; inset: 14px 2px 2px; display: flex; align-items: center; gap: 1px; }
+.audioClip > div span { flex: 1; min-width: 1px; border-radius: 1px; background: var(--fg-2); opacity: .5; }
+.audioLabel { position: absolute; left: 8px; top: 2px; right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--fg); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+/* What the narration says: a green strip under the waveform; pauses are where cuts fit. */
+.speech { position: absolute; bottom: 5px; height: 4px; border-radius: 2px; background: var(--success); opacity: .85; pointer-events: none; }
+.pause { position: absolute; bottom: 2px; width: 2px; height: 10px; margin-left: -1px; border-radius: 1px; background: var(--fg-2); opacity: .55; pointer-events: none; }
+
+.videoLane { position: relative; height: 76px; border-bottom: 1px solid var(--border); }
+.videoLane[data-drop="true"] { background: var(--accent-wash); }
+.laneHint { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11.5px; pointer-events: none; white-space: nowrap; }
+.item { position: absolute; top: 6px; bottom: 6px; box-sizing: border-box; display: flex; align-items: stretch; gap: 6px; min-width: 6px; border: 1px solid var(--border-hi); border-radius: 6px; overflow: hidden; background: var(--surface-2); cursor: grab; touch-action: none; user-select: none; outline: none; }
+.item[data-kind="image"] { background: color-mix(in srgb, var(--brand, var(--accent)) 16%, var(--surface-2)); }
+.item[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.item:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.item[data-moving="true"] { z-index: 3; opacity: .85; cursor: grabbing; box-shadow: 0 6px 16px rgba(0, 0, 0, .35); }
+.item[data-missing="true"] { border-color: var(--danger); }
+.thumb { flex: 0 0 auto; height: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #0b0d10; pointer-events: none; }
+.thumbIcon { flex: 0 0 auto; display: grid; place-items: center; width: 40px; color: var(--muted); }
+.itemText { display: grid; align-content: center; gap: 2px; min-width: 0; padding-right: 10px; pointer-events: none; }
+.itemText strong, .itemText span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itemText strong { font-size: 11.5px; color: var(--fg); }
+.itemText span { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; touch-action: none; z-index: 1; }
+.handle[data-edge="start"] { left: 0; }
+.handle[data-edge="end"] { right: 0; }
+.handle:hover { background: rgba(255, 255, 255, .2); }
+.insert { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--accent); pointer-events: none; z-index: 4; }
+
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--danger); pointer-events: none; z-index: 5; }

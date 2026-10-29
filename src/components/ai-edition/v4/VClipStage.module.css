@@ -1,0 +1,106 @@
+/* Fills the editor's stage the way Media does; a percentage height does not resolve there, so
+   the page could not scroll and anything below the fold was cut off. */
+.stage { position: absolute; inset: 0; overflow: auto; padding: 24px; color: var(--fg); }
+.inner { width: min(1240px, 100%); margin: 0 auto; display: grid; gap: 16px; }
+.header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 22px; margin: 0 0 8px; }
+.hint { color: var(--muted); font-size: 12px; line-height: 1.65; margin: 0; }
+.error { color: var(--danger); font-size: 12px; line-height: 1.5; margin: 0; }
+.warn { color: var(--warn); font-size: 12px; line-height: 1.5; margin: 0; }
+.fit { margin: 0; padding: 8px 12px; border-radius: var(--r-md); background: var(--accent-wash); font-size: 12px; color: var(--fg-2); }
+.fit strong { color: var(--fg-emphasis); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; background: var(--surface-2); color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.button:hover:not(:disabled) { background: var(--surface-3); }
+.button:disabled { opacity: .5; cursor: default; }
+.primary { background: var(--accent); color: var(--accent-on); border-color: var(--accent); font-weight: 600; }
+.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.05); }
+.empty { text-align: center; padding: 36px 24px; border: 1px dashed var(--border-hi); border-radius: var(--r-lg); display: grid; justify-items: center; gap: 12px; color: var(--muted); }
+.empty strong { color: var(--fg); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.inline { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-2); }
+.inline input { box-sizing: border-box; width: 72px; padding: 7px 8px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--fg); font: inherit; font-size: 12px; }
+
+/* The page-wide controls: import, clip length, analysis, and the model V.Clip asks. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.model { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; color: var(--fg-2); }
+.modelDot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.modelDot[data-state="ready"] { background: var(--success); }
+.modelDot[data-state="busy"] { background: var(--warn); }
+.linkButton { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.linkButton:hover { background: var(--accent-wash); }
+
+.summaryBar { display: grid; gap: 10px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { display: grid; gap: 2px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.stat strong { font-size: 20px; color: var(--fg-emphasis); }
+.stat span { font-size: 11.5px; color: var(--muted); }
+
+/* One panel per source video, AutoVeo's per-video section. */
+.source { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); scroll-margin-top: 12px; }
+.sourceHead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--fg-2); }
+.sourceTitle { flex: 1; min-width: 180px; }
+.sourceTitle h2 { font-size: 14.5px; margin: 0 0 2px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress { height: 6px; border-radius: 6px; background: var(--border-hi); overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--accent); transition: width var(--motion-fast, 120ms) ease; }
+
+.track { position: relative; height: 12px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.track span { position: absolute; top: 2px; bottom: 2px; min-width: 3px; border-radius: 3px; background: var(--border-hi); }
+.track span[data-state="selected"] { background: var(--accent); }
+.track span[data-state="split"] { background: var(--success); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.card { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.card[data-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card[data-split="true"] { border-color: var(--success); }
+.thumb { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #0b0d10; color: var(--muted); }
+.poster { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.poster img { width: 100%; height: 100%; object-fit: cover; }
+.playBadge { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: rgba(0, 0, 0, .66); color: #fff; font-size: 11px; font-weight: 600; opacity: .85; }
+.poster:hover .playBadge { opacity: 1; background: var(--accent); color: var(--accent-on); }
+.score { position: absolute; top: 8px; left: 8px; min-width: 30px; padding: 3px 7px; border-radius: 999px; background: rgba(0, 0, 0, .72); color: #fff; font-size: 12px; font-weight: 700; text-align: center; pointer-events: none; }
+.time { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 6px; background: rgba(0, 0, 0, .62); color: #fff; font-size: 11px; pointer-events: none; }
+
+/* The range preview replaces the poster: a full 16:9 picture with its bar below, so the card
+   grows rather than squeezing the bar into the picture. */
+.thumb[data-previewing="true"] { display: block; aspect-ratio: auto; }
+.player { display: grid; background: #000; }
+.player video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+.playerBar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 6px; background: rgba(12, 14, 18, .92); color: #fff; font-size: 11px; }
+.playerBar span { flex: 1; min-width: 90px; font-variant-numeric: tabular-nums; }
+.playerBar small { color: rgba(255, 255, 255, .6); }
+.playerBar button { padding: 3px 7px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 6px; background: transparent; color: #fff; font-size: 11px; cursor: pointer; }
+.playerBar button:hover { background: rgba(255, 255, 255, .12); }
+.previewError { display: grid; place-items: center; aspect-ratio: 16 / 9; margin: 0; padding: 12px; color: #fff; font-size: 11.5px; line-height: 1.5; text-align: center; background: #0b0d10; }
+
+.cardBody { display: grid; gap: 8px; align-content: start; padding: 10px 12px 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 3px 8px; border-radius: 999px; background: var(--accent-soft, var(--accent-wash)); color: var(--accent); font-size: 11px; font-weight: 600; }
+.done { background: var(--success-soft); color: var(--success); }
+.changed { background: var(--warn-soft); color: var(--warn); }
+.quiet { background: var(--surface-2); color: var(--muted); font-weight: 500; }
+.reason { margin: 0; font-size: 12px; line-height: 1.55; color: var(--fg-2); }
+.caption { margin: 0; font-size: 12px; color: var(--fg); }
+
+.range { display: grid; gap: 5px; }
+.rangeField { display: grid; grid-template-columns: 30px 26px minmax(0, 1fr) 26px; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.rangeField button { display: grid; place-items: center; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-2); cursor: pointer; }
+.rangeField button:hover:not(:disabled) { background: var(--surface-3); }
+.rangeField input { box-sizing: border-box; width: 100%; min-width: 0; height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg); font: inherit; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.rangeField button:disabled, .rangeField input:disabled { opacity: .5; cursor: default; }
+
+.cardActions { display: flex; gap: 6px; }
+.cardActions button { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg); font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.cardActions button[aria-pressed="true"]:not(.primary) { border-color: var(--border-hi); background: var(--surface-3); }
+.cardActions button:disabled { opacity: .5; cursor: default; }
+.cardActions .primary { background: var(--accent); color: var(--accent-on); border-color: var(--accent); font-weight: 600; }
+.cardActions .iconAction { flex: 0 0 34px; display: grid; place-items: center; padding: 0; color: var(--muted); }
+.cardActions .iconAction:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+
+.footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 0 12px; }
+.footer .hint { flex-basis: 100%; }
+
+@media (max-width: 900px) {
+	.stage { padding: 16px; }
+	.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.model { margin-left: 0; }
+}

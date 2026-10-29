@@ -1,0 +1,59 @@
+/* The Subtitles panel in Edit's inspector, and the quick bar over the preview. */
+.pane { display: flex; flex-direction: column; gap: 14px; padding: 16px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; color: var(--fg); font-size: 12px; }
+.head h2 { margin: 0 0 6px; font-size: 15px; }
+.head p { margin: 0; color: var(--muted); line-height: 1.6; }
+.note { margin: 0; color: var(--muted); line-height: 1.7; }
+.hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.pane kbd, .bar kbd { display: inline-block; padding: 0 5px; border: 1px solid var(--border-hi); border-radius: 4px; background: var(--surface-2); color: var(--fg-2); font: inherit; font-size: 10.5px; }
+
+.addRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 10px; border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--accent); color: var(--accent-on, var(--bg)); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.primary:hover:not(:disabled) { filter: brightness(1.05); }
+.primary:disabled { opacity: .5; cursor: default; }
+.primary kbd { background: rgba(0, 0, 0, .15); border-color: rgba(0, 0, 0, .2); color: inherit; }
+.ghost { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--fg-2); font: inherit; font-size: 12px; cursor: pointer; }
+.ghost:hover { background: var(--surface-3); }
+
+.section { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid var(--border); }
+.section h3 { display: flex; align-items: baseline; gap: 6px; margin: 0; font-size: 12.5px; }
+.section h3 span { color: var(--muted); font-weight: 400; }
+.kinds { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
+.kinds button { flex: 1; padding: 5px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.kinds button[aria-selected="true"], .kinds button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg-emphasis, var(--fg)); font-weight: 600; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; align-items: end; }
+.field { display: grid; gap: 5px; color: var(--fg-2); font-size: 11.5px; }
+.field input, .field select, .importRow select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg); font: inherit; font-size: 12px; }
+.check { display: inline-flex; align-items: center; gap: 6px; padding-bottom: 6px; color: var(--fg-2); font-size: 12px; }
+.segmentedRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--fg-2); font-size: 11.5px; }
+.segmented { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.segmented button { padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; }
+.segmented button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); font-weight: 600; }
+.swatches { display: inline-flex; align-items: center; gap: 5px; }
+.swatches button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--border-hi); border-radius: 50%; cursor: pointer; }
+.swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swatches input[type="color"] { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+
+.list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 260px; overflow-y: auto; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px; }
+.entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
+.entry:hover { background: var(--surface-2); }
+.time { color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.badge { padding: 1px 6px; border-radius: 999px; background: var(--accent-soft, var(--surface-3)); color: var(--accent, var(--fg)); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.list li[data-kind="title"] .badge { background: var(--warn-soft); color: var(--warn); }
+.text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-2); cursor: pointer; }
+.icon:hover { background: var(--surface-3); }
+
+.section textarea { box-sizing: border-box; width: 100%; resize: vertical; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg); font: inherit; font-size: 12px; line-height: 1.5; }
+.importRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.keys dt { color: var(--fg-2); font-family: var(--font-mono, monospace); font-size: 10.5px; white-space: nowrap; }
+.keys dd { margin: 0; color: var(--muted); }
+
+/* The quick bar: over the bottom of the preview, where a subtitle will appear. */
+.bar { position: absolute; bottom: 16px; left: 50%; z-index: 20; width: min(720px, calc(100% - 48px)); transform: translateX(-50%); display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--r-lg); background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: var(--elev-pop, 0 12px 32px rgba(0, 0, 0, .35)); backdrop-filter: blur(8px); color: var(--fg); font-size: 12px; }
+.barHead { display: flex; align-items: center; gap: 10px; }
+.barTime { flex: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar textarea { box-sizing: border-box; width: 100%; resize: none; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--fg); font: inherit; font-size: 15px; line-height: 1.5; }
+.bar textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.barFoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; }

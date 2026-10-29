@@ -1,0 +1,52 @@
+/* The Audio tab's timeline — tracks of clips — docked under the page like the editor's own. */
+.timeline { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; border-top: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.title { font-weight: 600; color: var(--fg-emphasis, var(--fg)); }
+.hint { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Heads and lanes scroll together vertically; only the lanes scroll sideways. */
+.body { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 0; overflow-y: auto; }
+.heads { border-right: 1px solid var(--border); background: var(--surface); }
+.rulerSpacer { height: 24px; border-bottom: 1px solid var(--border); }
+.head { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.head[data-selected="true"] { background: var(--accent-wash); color: var(--fg); }
+.headLabel { flex: 1; min-width: 0; display: grid; color: var(--fg); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.headLabel small { color: var(--muted); font-size: 10.5px; }
+.newHead { color: var(--muted); }
+.newHead .headLabel { color: var(--muted); }
+.mute { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-2); cursor: pointer; }
+.mute[aria-pressed="true"] { color: var(--danger); border-color: var(--danger); }
+
+.scroller { overflow-x: auto; overflow-y: hidden; min-width: 0; }
+.canvas { position: relative; min-width: 100%; }
+.ruler { position: relative; height: 24px; border-bottom: 1px solid var(--border); background: var(--surface-2); cursor: pointer; user-select: none; }
+.tick { position: absolute; top: 0; bottom: 0; padding: 5px 0 0 4px; border-left: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+/* The lanes are the rows' background — drop targets and click-to-deselect; the clips sit in one
+   layer over them, placed by row, so a clip dragged to another row keeps its element. */
+.rows { position: relative; }
+.lane { position: relative; height: 46px; border-bottom: 1px solid var(--border); }
+.lane[data-drop="true"] { background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent); }
+.newLane { display: flex; align-items: center; }
+.newLaneHint { position: sticky; left: 12px; padding: 0 12px; color: var(--muted); font-size: 11px; pointer-events: none; opacity: .7; }
+
+.pill { position: absolute; min-width: 6px; box-sizing: border-box; border: 1px solid transparent; border-radius: 6px; overflow: hidden; cursor: grab; touch-action: none; user-select: none; outline: none; }
+.pill[data-kind="music"] { background: color-mix(in srgb, var(--accent) 26%, var(--surface-2)); }
+/* Narration in a warm hue of its own, so it reads apart from the teal music at a glance. */
+.pill[data-kind="voiceover"] { background: color-mix(in srgb, var(--warn) 24%, var(--surface-2)); }
+.pill[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pill:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.pill[data-muted="true"] { opacity: .4; }
+.pill[data-missing="true"] { border-color: var(--danger); }
+.pill:active { cursor: grabbing; }
+.pillLabel { position: absolute; left: 10px; top: 3px; right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--fg); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); pointer-events: none; }
+.wave { position: absolute; inset: 14px 2px 2px; display: flex; align-items: center; gap: 1px; pointer-events: none; }
+.wave span { flex: 1; min-width: 1px; border-radius: 1px; background: currentColor; color: var(--fg-2); opacity: .55; }
+.fadeIn, .fadeOut { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.fadeIn { left: 0; background: linear-gradient(to bottom right, rgba(0, 0, 0, .5) 50%, transparent 50%); }
+.fadeOut { right: 0; background: linear-gradient(to bottom left, rgba(0, 0, 0, .5) 50%, transparent 50%); }
+.handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; touch-action: none; }
+.handle[data-edge="in"] { left: 0; }
+.handle[data-edge="out"] { right: 0; }
+.handle:hover { background: rgba(255, 255, 255, .18); }
+
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--danger); pointer-events: none; z-index: 2; }

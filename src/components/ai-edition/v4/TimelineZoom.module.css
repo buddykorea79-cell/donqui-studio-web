@@ -1,0 +1,10 @@
+/* Zoom controls shared by the Audio and Media timelines' toolbars. */
+.zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.zoom button { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-2); cursor: pointer; }
+.zoom button:hover:not(:disabled) { background: var(--surface-3); }
+.zoom button:disabled { opacity: .45; cursor: default; }
+.zoom input[type="range"] { width: 110px; height: 16px; appearance: none; background: transparent; cursor: pointer; }
+.zoom input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--border-hi); }
+.zoom input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%; background: var(--accent); }
+.zoom input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.value { min-width: 34px; text-align: right; }
