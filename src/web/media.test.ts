@@ -10,6 +10,8 @@ describe("web media helpers", () => {
 	});
 	it("formats duration and handles invalid metadata", () => {
 		expect(formatTime(65.5)).toBe("01:05.5");
+		expect(formatTime(6 + 0.8)).toBe("00:06.8");
+		expect(formatTime(6.79)).toBe("00:06.7");
 		expect(formatTime(Number.NaN)).toBe("00:00.0");
 	});
 });

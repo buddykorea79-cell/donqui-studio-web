@@ -5,6 +5,7 @@ import {
 	Download,
 	Film,
 	FolderOpen,
+	Gauge,
 	Image as ImageIcon,
 	Info,
 	Monitor,
@@ -21,6 +22,7 @@ import {
 	Undo2,
 	Upload,
 	X,
+	ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CLIP_EFFECTS, isClipEffectId, resolveClipEffect } from "../lib/clip-effects/catalog";
@@ -43,8 +45,16 @@ import {
 	type WebProject,
 	type WebWorkspace,
 } from "./project";
+import { newRegionRange, type RegionKind, type RegionSelection } from "./regionEditing";
 import { clearWorkspace, loadWorkspace, saveWorkspace } from "./storage";
+import { TimelineRegionEditor } from "./TimelineRegionEditor";
+import {
+	getClipOutputDuration,
+	normalizeClipRegions,
+	splitClipAtOutputTime,
+} from "./timelineEffects";
 import { useScreenRecording } from "./useScreenRecording";
+import { VisualTimeline } from "./VisualTimeline";
 import { hasSeenWebNotice, rememberWebNotice, WebVersionNotice } from "./WebVersionNotice";
 
 const emptyWorkspace = (): WebWorkspace => ({ project: createProject(), assets: [] });
@@ -101,6 +111,7 @@ export function WebStudio() {
 	const [importing, setImporting] = useState(false);
 	const [filter, setFilter] = useState<"all" | WebAsset["kind"]>("all");
 	const [selected, setSelected] = useState<string | null>(null);
+	const [selectedRegion, setSelectedRegion] = useState<RegionSelection | null>(null);
 	const [time, setTime] = useState(0);
 	const [playing, setPlaying] = useState(false);
 	const [progress, setProgress] = useState<number | null>(null);
@@ -320,10 +331,57 @@ export function WebStudio() {
 	const selectedAudio = project.audio.find((item) => item.id === selected);
 	const selectedItem = selectedClip ?? selectedAudio;
 	const selectedAsset = assets.find((item) => item.id === selectedItem?.assetId);
+	const selectedClipStart = project.clips
+		.slice(
+			0,
+			Math.max(
+				0,
+				project.clips.findIndex((clip) => clip.id === selected),
+			),
+		)
+		.reduce((sum, clip) => sum + getClipOutputDuration(clip), 0);
 	const updateClip = (change: Partial<WebClip>) =>
 		editProject({
-			clips: project.clips.map((clip) => (clip.id === selected ? { ...clip, ...change } : clip)),
+			clips: project.clips.map((clip) =>
+				clip.id === selected ? normalizeClipRegions({ ...clip, ...change }) : clip,
+			),
 		});
+	const addRegion = (kind: RegionKind) => {
+		let start = 0;
+		const clip = project.clips.find((item, index) => {
+			if (time < start + getClipOutputDuration(item) || index === project.clips.length - 1)
+				return true;
+			start += getClipOutputDuration(item);
+			return false;
+		});
+		if (!clip) return;
+		const range = newRegionRange(clip, kind, time - start);
+		setSelected(clip.id);
+		setPlaying(false);
+		if (range.existingId) {
+			setSelectedRegion({ clipId: clip.id, kind, id: range.existingId });
+			setNotice("현재 위치의 구간을 선택했습니다. 오른쪽에서 범위를 조절하세요.");
+			return;
+		}
+		if (range.start === undefined || range.end === undefined || range.end - range.start < 0.01) {
+			setNotice("구간을 넣을 빈 위치로 재생 위치를 옮겨 주세요.");
+			return;
+		}
+		const id = crypto.randomUUID();
+		const base = { id, start: range.start, end: range.end };
+		const next =
+			kind === "zoom"
+				? {
+						...clip,
+						zoomRegions: [
+							...(clip.zoomRegions ?? []),
+							{ ...base, scale: 2, focusX: 0.5, focusY: 0.5 },
+						],
+					}
+				: { ...clip, speedRegions: [...(clip.speedRegions ?? []), { ...base, rate: 2 }] };
+		editProject({ clips: project.clips.map((item) => (item.id === clip.id ? next : item)) });
+		setSelectedRegion({ clipId: clip.id, kind, id });
+	};
 	const updateAudio = (change: Partial<WebAudio>) =>
 		editProject({
 			audio: project.audio.map((item) => (item.id === selected ? { ...item, ...change } : item)),
@@ -338,27 +396,23 @@ export function WebStudio() {
 	const splitClip = () => {
 		if (!selectedClip) return;
 		const index = project.clips.indexOf(selectedClip);
-		const start = project.clips.slice(0, index).reduce((sum, item) => sum + item.duration, 0);
+		const start = selectedClipStart;
 		const offset = time - start;
-		if (offset < 0.1 || offset > selectedClip.duration - 0.1) {
+		if (offset < 0.1 || offset > getClipOutputDuration(selectedClip) - 0.1) {
 			setNotice("선택한 클립 안쪽으로 재생 위치를 옮긴 뒤 나누세요.");
 			return;
 		}
-		const second = {
-			...selectedClip,
-			id: crypto.randomUUID(),
-			trimStart: selectedAsset?.kind === "image" ? 0 : selectedClip.trimStart + offset,
-			duration: selectedClip.duration - offset,
-		};
+		const [first, second] = splitClipAtOutputTime(
+			selectedClip,
+			offset,
+			crypto.randomUUID(),
+			selectedAsset?.kind === "image",
+		);
 		editProject({
-			clips: [
-				...project.clips.slice(0, index),
-				{ ...selectedClip, duration: offset },
-				second,
-				...project.clips.slice(index + 1),
-			],
+			clips: [...project.clips.slice(0, index), first, second, ...project.clips.slice(index + 1)],
 		});
 		setSelected(second.id);
+		setSelectedRegion(null);
 	};
 	const fitToMusic = () => {
 		try {
@@ -477,7 +531,6 @@ export function WebStudio() {
 				)}
 			</main>
 		);
-	let clipStart = 0;
 	const filteredAssets = assets.filter((asset) => filter === "all" || asset.kind === filter);
 	return (
 		<main
@@ -827,6 +880,18 @@ export function WebStudio() {
 						)}
 					</div>
 					<fieldset disabled={busy}>
+						{selectedClip && selectedRegion?.clipId === selectedClip.id && (
+							<TimelineRegionEditor
+								clip={selectedClip}
+								selection={selectedRegion}
+								onChange={updateClip}
+								onSeek={(position) => {
+									setTime(selectedClipStart + position);
+									setPlaying(false);
+								}}
+								onClose={() => setSelectedRegion(null)}
+							/>
+						)}
 						<label className="field">
 							<span>출력 크기</span>
 							<select
@@ -841,6 +906,13 @@ export function WebStudio() {
 								<option value="720x1280">세로 9:16 · 720p</option>
 								<option value="1080x1920">세로 9:16 · 1080p</option>
 								<option value="1080x1080">정사각형 · 1080p</option>
+								{!["1280x720", "1920x1080", "720x1280", "1080x1920", "1080x1080"].includes(
+									`${project.width}x${project.height}`,
+								) && (
+									<option value={`${project.width}x${project.height}`}>
+										{project.width} × {project.height} · 가져온 크기
+									</option>
+								)}
 							</select>
 						</label>
 						<button
@@ -891,7 +963,7 @@ export function WebStudio() {
 									/>
 								)}
 								<NumberField
-									label="클립 길이 (초)"
+									label={selectedClip ? "원본 구간 길이 (초)" : "클립 길이 (초)"}
 									min={Math.min(0.1, selectedAsset.duration || 0.1)}
 									max={
 										selectedAsset.kind === "image"
@@ -926,6 +998,10 @@ export function WebStudio() {
 								)}
 								{selectedClip && (
 									<>
+										<p className="field-note">
+											완성 영상에서 {formatTime(getClipOutputDuration(selectedClip))} 재생됩니다.
+											돋보기·속도는 타임라인에서 구간을 추가하세요.
+										</p>
 										<label className="field">
 											<span>Remotion 효과</span>
 											<select
@@ -1063,6 +1139,22 @@ export function WebStudio() {
 				<div className="timeline-toolbar">
 					<div>
 						<h2>타임라인</h2>
+						<button
+							type="button"
+							className="add-region-button"
+							disabled={!project.clips.length || busy}
+							onClick={() => addRegion("zoom")}
+						>
+							<ZoomIn size={15} />+ 돋보기
+						</button>
+						<button
+							type="button"
+							className="add-region-button"
+							disabled={!project.clips.length || busy}
+							onClick={() => addRegion("speed")}
+						>
+							<Gauge size={15} />+ 속도
+						</button>
 						<span className="separator" />
 						<button
 							type="button"
@@ -1096,53 +1188,54 @@ export function WebStudio() {
 						<ArrowRight size={14} />
 					</button>
 				</div>
+				{project.clips.length > 0 && (
+					<VisualTimeline
+						project={project}
+						assets={assets}
+						time={time}
+						selectedClipId={selected}
+						selection={selectedRegion}
+						disabled={busy}
+						onSelectClip={(id, start) => {
+							setSelected(id);
+							setSelectedRegion(null);
+							setTime(start);
+							setPlaying(false);
+						}}
+						onSelectRegion={(selection, position) => {
+							setSelected(selection.clipId);
+							setSelectedRegion(selection);
+							setTime(position);
+							setPlaying(false);
+						}}
+						onSeek={(position) => {
+							setTime(position);
+							setPlaying(false);
+						}}
+					/>
+				)}
 				<div className="timeline-content">
-					<div className="track-label">
-						<Film size={16} />
-						<span>영상 · 사진</span>
-					</div>
-					<div className="clip-track">
-						{project.clips.map((clip, index) => {
-							const start = clipStart;
-							clipStart += clip.duration;
-							const asset = assets.find((item) => item.id === clip.assetId);
-							return (
-								<button
-									type="button"
-									key={clip.id}
-									className={`timeline-clip ${selected === clip.id ? "selected" : ""}`}
-									style={{
-										flexGrow: clip.duration,
-										flexBasis: Math.max(112, Math.min(260, clip.duration * 12)),
-									}}
-									disabled={busy}
-									onClick={() => {
-										setSelected(clip.id);
-										setPlaying(false);
-										setTime(start);
-									}}
-								>
-									<span className="clip-number">{String(index + 1).padStart(2, "0")}</span>
-									<strong>{asset?.name ?? "미디어"}</strong>
-									<small>
-										{formatTime(clip.duration)}
-										{clip.caption && " · 자막"}
-									</small>
-								</button>
-							);
-						})}
-						{!project.clips.length && (
-							<button
-								type="button"
-								className="empty-track"
-								disabled={busy}
-								onClick={() => importInput.current?.click()}
-							>
-								<Plus size={17} />
-								미디어를 가져와 첫 장면을 추가하세요
-							</button>
-						)}
-					</div>
+					{!project.clips.length && (
+						<>
+							<div className="track-label">
+								<Film size={16} />
+								<span>영상 · 사진</span>
+							</div>
+							<div className="clip-track">
+								{!project.clips.length && (
+									<button
+										type="button"
+										className="empty-track"
+										disabled={busy}
+										onClick={() => importInput.current?.click()}
+									>
+										<Plus size={17} />
+										미디어를 가져와 첫 장면을 추가하세요
+									</button>
+								)}
+							</div>
+						</>
+					)}
 					<div className="track-label">
 						<Music2 size={16} />
 						<span>배경 음악</span>

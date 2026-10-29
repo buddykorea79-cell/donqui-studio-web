@@ -58,6 +58,53 @@ const clip: WebClip = {
 const portrait = { width: 300, height: 600 } as HTMLCanvasElement;
 
 describe("canvas effect framing", () => {
+	it("zooms around the selected frame position without moving captions", () => {
+		const context = recordingContext();
+		drawFrame(
+			context as unknown as CanvasRenderingContext2D,
+			portrait,
+			{
+				...clip,
+				caption: "확대해도 같은 자막",
+				zoomRegions: [{ id: "zoom", start: 0, end: 2, scale: 2, focusX: 0.75, focusY: 0.25 }],
+			},
+			640,
+			360,
+			1,
+		);
+		expect(context.translate).toHaveBeenCalledWith(-640, 0);
+		expect(context.scale).toHaveBeenCalledWith(2, 2);
+		expect(context.restore.mock.invocationCallOrder[0]).toBeLessThan(
+			context.fillText.mock.invocationCallOrder[0],
+		);
+		expect(context.fillText).toHaveBeenCalledWith(
+			"확대해도 같은 자막",
+			320,
+			expect.any(Number),
+			640 * 0.84,
+		);
+	});
+
+	it("uses output duration for the existing motion effects on a sped-up clip", () => {
+		const context = recordingContext();
+		drawFrame(
+			context as unknown as CanvasRenderingContext2D,
+			portrait,
+			{
+				...clip,
+				effect: "zoom-in",
+				speedRegions: [{ id: "speed", start: 0, end: 2, rate: 2 }],
+			},
+			640,
+			360,
+			0.5,
+		);
+		expect(context.scale).toHaveBeenCalledWith(
+			frameTransform("zoom-in", 0.5, 1).scale,
+			frameTransform("zoom-in", 0.5, 1).scale,
+		);
+	});
+
 	it("contains the entire portrait by default and centers it in the landscape frame", () => {
 		const context = recordingContext();
 		drawFrame(context as unknown as CanvasRenderingContext2D, portrait, clip, 640, 360, 0);

@@ -790,7 +790,155 @@ button svg {
 	grid-template-columns: 106px minmax(0, 1fr);
 	row-gap: 10px;
 	padding: 16px;
-	min-height: 164px;
+	min-height: 64px;
+}
+.timeline-toolbar {
+	flex-wrap: wrap;
+	gap: 10px;
+}
+.timeline-toolbar > div {
+	flex-wrap: wrap;
+}
+.add-region-button {
+	border: 1px solid #45545a;
+	padding: 7px 9px;
+	font-size: 11px;
+}
+.visual-timeline {
+	overflow-x: auto;
+	padding: 12px 16px 0;
+}
+.visual-timeline-grid {
+	display: grid;
+	grid-template-columns: 106px minmax(0, 1fr);
+	gap: 8px 0;
+}
+.timeline-row {
+	display: contents;
+}
+.timeline-ruler {
+	display: flex;
+	justify-content: space-between;
+}
+.timeline-ruler button {
+	padding: 4px 0;
+	color: #9caaa9;
+	font-size: 10px;
+}
+.visual-track {
+	position: relative;
+	min-height: 34px;
+	background: #20262a;
+	border-radius: 5px;
+}
+.clip-lane {
+	height: 67px;
+}
+.visual-track .timeline-clip {
+	position: absolute;
+	inset-block: 0;
+	min-width: 0;
+	max-width: none;
+	border-radius: 4px;
+	padding-right: 4px;
+}
+.timeline-region {
+	position: absolute;
+	inset-block: 2px;
+	min-width: 1px;
+	padding: 5px;
+	border-radius: 4px;
+	overflow: hidden;
+	display: block;
+	text-overflow: ellipsis;
+	text-align: left;
+	font-size: 10px;
+}
+.zoom .timeline-region {
+	background: #354961;
+	border: 1px solid #617fa3;
+	color: #d0e5ff;
+}
+.speed .timeline-region {
+	background: #584633;
+	border: 1px solid #92734e;
+	color: #ffe1b9;
+}
+.timeline-region.selected {
+	box-shadow: inset 0 0 0 1px #fff;
+	border-color: #fff;
+}
+.timeline-playhead {
+	position: absolute;
+	inset-block: 0;
+	width: 1px;
+	background: var(--mint);
+	pointer-events: none;
+	z-index: 1;
+}
+.region-lane-hint {
+	padding: 9px 12px;
+	display: block;
+	font-size: 10px;
+	color: #718288;
+}
+.region-editor {
+	border: 1px solid #526f88;
+	border-radius: 8px;
+	padding: 12px;
+	margin-bottom: 16px;
+	grid-column: 1 / -1;
+}
+.region-editor.speed {
+	border-color: #8b704c;
+}
+.region-editor-heading {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+}
+.region-editor-heading h3 {
+	font-size: 12px;
+	margin: 0;
+}
+.region-editor-heading button {
+	font-size: 10px;
+}
+.region-range-fields {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 8px;
+}
+.focus-presets {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 4px;
+	margin: 10px 0;
+}
+.focus-presets button {
+	border: 1px solid #40505b;
+	padding: 7px 1px;
+	font-size: 9px;
+}
+.focus-presets button[aria-pressed="true"] {
+	background: #354961;
+	border-color: #8daacb;
+}
+.region-editor-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	flex-wrap: wrap;
+}
+.region-editor-actions button {
+	padding: 7px;
+	font-size: 10px;
+	border: 1px solid #44505a;
+}
+.region-editor-actions .delete-button {
+	margin: 0;
+	width: auto;
 }
 .track-label {
 	display: flex;

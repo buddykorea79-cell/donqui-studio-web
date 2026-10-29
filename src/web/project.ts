@@ -6,6 +6,13 @@ import {
 	isClipEffectId,
 } from "../lib/clip-effects/catalog";
 import type { WebCaption, WebCaptionStyle } from "./captions";
+import {
+	clipOutputToSourceTime,
+	getClipOutputDuration,
+	normalizeClipRegions,
+	type WebSpeedRegion,
+	type WebZoomRegion,
+} from "./timelineEffects";
 
 export type WebAsset = {
 	id: string;
@@ -26,6 +33,8 @@ export type WebClip = {
 	effect: ClipEffectId;
 	fit?: ClipFit;
 	caption: string;
+	zoomRegions?: WebZoomRegion[];
+	speedRegions?: WebSpeedRegion[];
 };
 
 export type WebAudio = {
@@ -67,6 +76,34 @@ const clipSchema = z.object({
 	effect: z.custom<ClipEffectId>(isClipEffectId),
 	fit: z.enum(["contain", "cover"]).optional(),
 	caption: z.string().max(5_000),
+	zoomRegions: z
+		.array(
+			z.object({
+				id: identifier,
+				start: seconds,
+				end: seconds.positive(),
+				scale: z.number().finite().min(1).max(5),
+				focusX: z.number().finite().min(0).max(1),
+				focusY: z.number().finite().min(0).max(1),
+				easeInDuration: z.number().finite().positive().max(0.25).optional(),
+				easeOutDuration: z.number().finite().positive().max(0.25).optional(),
+				easeInOffset: z.number().finite().min(0).max(345_600).optional(),
+				easeOutOffset: z.number().finite().min(0).max(345_600).optional(),
+			}),
+		)
+		.max(10_000)
+		.optional(),
+	speedRegions: z
+		.array(
+			z.object({
+				id: identifier,
+				start: seconds,
+				end: seconds.positive(),
+				rate: z.number().finite().min(0.25).max(4),
+			}),
+		)
+		.max(10_000)
+		.optional(),
 });
 const workspaceSchema = z.object({
 	project: z.object({
@@ -144,6 +181,7 @@ export function validateWorkspace(value: unknown): WebWorkspace {
 		ids.add(caption.id);
 	}
 	ids.clear();
+	const regionIds = new Set<string>();
 	for (const item of [...workspace.project.clips, ...workspace.project.audio]) {
 		if (ids.has(item.id)) throw new Error("프로젝트에 중복된 클립 ID가 있습니다.");
 		ids.add(item.id);
@@ -155,6 +193,24 @@ export function validateWorkspace(value: unknown): WebWorkspace {
 		}
 		if (asset.kind !== "image" && item.trimStart + item.duration > asset.duration + 0.01) {
 			throw new Error("클립의 재생 구간이 원본 미디어 길이를 초과합니다.");
+		}
+		if ("effect" in item) {
+			for (const regions of [item.zoomRegions ?? [], item.speedRegions ?? []]) {
+				let previousEnd = 0;
+				for (const region of [...regions].sort((a, b) => a.start - b.start)) {
+					if (regionIds.has(region.id))
+						throw new Error("프로젝트에 중복된 효과 구간 ID가 있습니다.");
+					regionIds.add(region.id);
+					if (
+						region.end <= region.start ||
+						region.end > item.duration + 1e-7 ||
+						region.start < previousEnd - 1e-7
+					) {
+						throw new Error("효과 구간이 겹치거나 클립 길이를 초과합니다.");
+					}
+					previousEnd = region.end;
+				}
+			}
 		}
 	}
 	return workspace;
@@ -199,7 +255,7 @@ export function createAudio(asset: WebAsset): WebAudio {
 
 /** Visual clips define the movie's duration; audio outside that range is trimmed. */
 export function getProjectDuration(project: WebProject): number {
-	return project.clips.reduce((duration, clip) => duration + clip.duration, 0);
+	return project.clips.reduce((duration, clip) => duration + getClipOutputDuration(clip), 0);
 }
 
 export function getProjectFrameCount(project: WebProject): number {
@@ -212,16 +268,17 @@ export function getProjectCaptions(project: WebProject): WebCaption[] {
 	let start = 0;
 	const captions = [...(project.captions ?? [])];
 	for (const clip of project.clips) {
+		const outputDuration = getClipOutputDuration(clip);
 		if (clip.caption.trim())
 			captions.push({
 				id: `clip-${clip.id}`,
 				text: clip.caption,
 				startMs: Math.round(start * 1000),
-				endMs: Math.max(Math.round(start * 1000) + 1, Math.round((start + clip.duration) * 1000)),
+				endMs: Math.max(Math.round(start * 1000) + 1, Math.round((start + outputDuration) * 1000)),
 				timestampMs: null,
 				confidence: null,
 			});
-		start += clip.duration;
+		start += outputDuration;
 	}
 	return captions.filter((caption) => caption.text.trim()).sort((a, b) => a.startMs - b.startMs);
 }
@@ -246,12 +303,16 @@ export function fitClipsToDuration(
 	}
 	if (!project.clips.length) throw new Error("먼저 영상이나 사진을 타임라인에 추가해 주세요.");
 	const byId = new Map(assets.map((asset) => [asset.id, asset]));
-	const limits = project.clips.map((clip) => {
+	const sourceLimits = project.clips.map((clip) => {
 		const asset = byId.get(clip.assetId);
 		if (!asset) throw new Error("클립의 원본 미디어를 찾을 수 없습니다.");
-		if (asset.kind === "image") return Number.POSITIVE_INFINITY;
+		if (asset.kind === "image") return 86_400;
 		return Math.max(0, asset.duration - clip.trimStart);
 	});
+	const limits = project.clips.map((clip, index) =>
+		getClipOutputDuration({ ...clip, duration: sourceLimits[index] }),
+	);
+	const weights = project.clips.map(getClipOutputDuration);
 	if (limits.some((limit) => limit <= 0)) {
 		throw new Error("재생할 수 있는 구간이 없는 클립이 있습니다.");
 	}
@@ -262,13 +323,11 @@ export function fitClipsToDuration(
 	let pending = project.clips.map((_, index) => index);
 	let remaining = targetSeconds;
 	while (pending.length) {
-		const weight = pending.reduce((sum, index) => sum + project.clips[index].duration, 0);
-		const capped = pending.filter(
-			(index) => (remaining * project.clips[index].duration) / weight > limits[index],
-		);
+		const weight = pending.reduce((sum, index) => sum + weights[index], 0);
+		const capped = pending.filter((index) => (remaining * weights[index]) / weight > limits[index]);
 		if (!capped.length) {
 			for (const index of pending) {
-				durations[index] = (remaining * project.clips[index].duration) / weight;
+				durations[index] = (remaining * weights[index]) / weight;
 			}
 			break;
 		}
@@ -280,7 +339,15 @@ export function fitClipsToDuration(
 	}
 	return {
 		...project,
-		clips: project.clips.map((clip, index) => ({ ...clip, duration: durations[index] })),
+		clips: project.clips.map((clip, index) =>
+			normalizeClipRegions({
+				...clip,
+				duration: clipOutputToSourceTime(
+					{ ...clip, duration: sourceLimits[index] },
+					durations[index],
+				),
+			}),
+		),
 		updatedAt: new Date().toISOString(),
 	};
 }

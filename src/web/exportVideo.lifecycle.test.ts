@@ -5,9 +5,11 @@ import { drawFrame } from "./renderFrame";
 
 const codec = vi.hoisted(() => ({
 	frames: [] as Array<{ time: number; duration: number }>,
+	sourceTimes: [] as number[],
 	cancel: vi.fn(),
 	finalize: vi.fn(),
 	closeBitmap: vi.fn(),
+	dispose: vi.fn(),
 }));
 
 vi.mock("./renderFrame", () => ({ drawFrame: vi.fn() }));
@@ -16,8 +18,20 @@ vi.mock("mediabunny", () => ({
 	AudioBufferSink: class {},
 	AudioBufferSource: class {},
 	BlobSource: class {},
-	CanvasSink: class {},
-	Input: class {},
+	CanvasSink: class {
+		async *canvasesAtTimestamps(timestamps: Iterable<number>) {
+			for (const timestamp of timestamps) {
+				codec.sourceTimes.push(timestamp);
+				yield { canvas: {} };
+			}
+		}
+	},
+	Input: class {
+		async getPrimaryVideoTrack() {
+			return { canDecode: async () => true, getFirstTimestamp: async () => 0 };
+		}
+		dispose = codec.dispose;
+	},
 	Mp4OutputFormat: class {},
 	WebMOutputFormat: class {},
 	canEncodeVideo: async () => true,
@@ -53,6 +67,7 @@ describe("browser export lifecycle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		codec.frames = [];
+		codec.sourceTimes = [];
 		codec.cancel.mockResolvedValue(undefined);
 		codec.finalize.mockResolvedValue(undefined);
 		vi.stubGlobal("document", {
@@ -96,5 +111,28 @@ describe("browser export lifecycle", () => {
 		expect(codec.cancel).toHaveBeenCalledOnce();
 		expect(codec.closeBitmap).toHaveBeenCalledOnce();
 		expect(codec.finalize).not.toHaveBeenCalled();
+	});
+	it("decodes sped-up source spans while exporting consecutive output timestamps", async () => {
+		const movie: WebAsset = { ...asset, id: "video", kind: "video", duration: 6 };
+		const clip = {
+			...createClip(movie),
+			trimStart: 1,
+			duration: 5,
+			volume: 0,
+			speedRegions: [{ id: "fast", start: 1, end: 3, rate: 2 }],
+		};
+		const project = { ...createProject(), clips: [clip, { ...createClip(asset), duration: 0.5 }] };
+		await exportVideo(project, [asset, movie]);
+		expect(codec.frames).toHaveLength(135);
+		expect(codec.sourceTimes).toHaveLength(120);
+		expect(codec.sourceTimes[0]).toBe(1);
+		expect(codec.sourceTimes[30]).toBe(2);
+		expect(codec.sourceTimes[45]).toBe(3);
+		expect(codec.sourceTimes[60]).toBe(4);
+		expect(codec.sourceTimes[119]).toBeCloseTo(6 - 1 / 30);
+		expect(codec.frames[120].time).toBe(4);
+		expect(vi.mocked(drawFrame).mock.calls[120][2]?.id).toBe(project.clips[1].id);
+		expect(codec.frames[134].time + codec.frames[134].duration).toBeCloseTo(4.5);
+		expect(codec.dispose).toHaveBeenCalledOnce();
 	});
 });

@@ -3,6 +3,7 @@ import { clipEffectTransform } from "../lib/clip-effects/motion";
 import { drawCaptionOverlay } from "./captionRender";
 import { activeCaptionText, type WebCaption, type WebCaptionStyle } from "./captions";
 import type { WebClip } from "./project";
+import { getClipOutputDuration, getZoomTransform } from "./timelineEffects";
 
 export function frameTransform(effect: WebClip["effect"], time: number, duration: number) {
 	return clipEffectTransform(
@@ -37,9 +38,20 @@ export function drawFrame(
 	context.fillRect(0, 0, width, height);
 	if (source && clip) {
 		const size = sourceDimensions(source);
-		const motion = frameTransform(clip.effect, localTime, clip.duration);
+		const motion = frameTransform(clip.effect, localTime, getClipOutputDuration(clip));
+		const zoom = getZoomTransform(clip, localTime);
 		if (size.width > 0 && size.height > 0) {
 			context.save();
+			// Clamp the zoom camera to the frame edges, then apply the existing clip motion.
+			if (zoom.scale !== 1) {
+				const focusX = Math.max(0.5 / zoom.scale, Math.min(1 - 0.5 / zoom.scale, zoom.focusX));
+				const focusY = Math.max(0.5 / zoom.scale, Math.min(1 - 0.5 / zoom.scale, zoom.focusY));
+				context.translate(
+					width / 2 - focusX * width * zoom.scale,
+					height / 2 - focusY * height * zoom.scale,
+				);
+				context.scale(zoom.scale, zoom.scale);
+			}
 			context.translate(
 				width / 2 + (motion.translateX * width) / 100,
 				height / 2 + (motion.translateY * height) / 100,

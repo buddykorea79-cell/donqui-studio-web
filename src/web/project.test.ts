@@ -6,6 +6,7 @@ import {
 	createClip,
 	createProject,
 	fitClipsToDuration,
+	getProjectCaptions,
 	getProjectDuration,
 	getProjectFrameCount,
 	moveClip,
@@ -38,6 +39,77 @@ describe("browser project validation", () => {
 		expect(restored.project.clips[0].fit).toBeUndefined();
 		expect(restored.project.captions).toBeUndefined();
 		expect(restored.project.captionStyle).toBeUndefined();
+		expect(restored.project.clips[0].zoomRegions).toBeUndefined();
+		expect(restored.project.clips[0].speedRegions).toBeUndefined();
+	});
+
+	it("validates region bounds, same-type overlap, duplicate IDs and numeric settings", () => {
+		const current = workspace();
+		const zoom = { id: "zoom", start: 1, end: 4, scale: 2, focusX: 0.5, focusY: 0.5 };
+		const speed = { id: "speed", start: 1, end: 4, rate: 2 };
+		const visual = { ...current.project.clips[0], zoomRegions: [zoom], speedRegions: [speed] };
+		const validate = (change: Record<string, unknown>) =>
+			validateWorkspace({
+				...current,
+				project: { ...current.project, clips: [{ ...visual, ...change }] },
+			});
+		expect(validate({}).project.clips[0]).toEqual(visual);
+		for (const change of [
+			{ start: -1 },
+			{ scale: 6 },
+			{ focusX: 1.1 },
+			{ focusY: Number.NaN },
+			{ easeInDuration: 0 },
+			{ easeOutDuration: 0.3 },
+			{ easeInOffset: -1 },
+			{ easeOutOffset: Number.POSITIVE_INFINITY },
+		]) {
+			expect(() => validate({ zoomRegions: [{ ...zoom, ...change }] })).toThrow("데이터 형식");
+		}
+		for (const rate of [0, 0.1, 4.1, Number.POSITIVE_INFINITY]) {
+			expect(() => validate({ speedRegions: [{ ...speed, rate }] })).toThrow("데이터 형식");
+		}
+		for (const change of [{ end: 11 }, { start: 4 }, { start: 5 }]) {
+			expect(() => validate({ speedRegions: [{ ...speed, ...change }] })).toThrow("효과 구간");
+		}
+		expect(() =>
+			validate({ zoomRegions: [zoom, { ...zoom, id: "overlap", start: 3, end: 5 }] }),
+		).toThrow("효과 구간");
+		expect(() => validate({ speedRegions: [speed, { ...speed, start: 5, end: 7 }] })).toThrow(
+			"중복된 효과 구간",
+		);
+		expect(() => validate({ speedRegions: [{ ...speed, id: "zoom" }] })).toThrow(
+			"중복된 효과 구간",
+		);
+		expect(
+			validate({ speedRegions: [speed, { ...speed, id: "touching", start: 4, end: 5 }] }),
+		).toBeTruthy();
+	});
+
+	it("uses output time for total duration and clip captions while preserving timed cues", () => {
+		const current = workspace();
+		current.project.clips[0] = {
+			...current.project.clips[0],
+			caption: "빠른 영상",
+			speedRegions: [{ id: "fast", start: 0, end: 10, rate: 2 }],
+		};
+		current.project.clips[1].caption = "사진";
+		const timed = {
+			id: "timed",
+			text: "시간 자막",
+			startMs: 6000,
+			endMs: 7000,
+			timestampMs: null,
+			confidence: null,
+		};
+		current.project.captions = [timed];
+		expect(getProjectDuration(current.project)).toBe(10);
+		expect(getProjectFrameCount(current.project)).toBe(300);
+		expect(getProjectCaptions(current.project)).toMatchObject([
+			{ text: "빠른 영상", startMs: 0, endMs: 5000 },
+			{ text: "사진", startMs: 5000, endMs: 10000 },
+			timed,
+		]);
 	});
 
 	it("accepts all shared Remotion effects and either media fitting mode", () => {
@@ -150,6 +222,39 @@ describe("browser project validation", () => {
 });
 
 describe("fitting visuals to music", () => {
+	it("fits output durations and clips speed/zoom ranges when shortening", () => {
+		const current = workspace();
+		current.project.clips[0] = {
+			...current.project.clips[0],
+			speedRegions: [{ id: "fast", start: 0, end: 10, rate: 2 }],
+			zoomRegions: [{ id: "zoom", start: 1, end: 8, scale: 2, focusX: 0.5, focusY: 0.5 }],
+		};
+		const fitted = fitClipsToDuration(current.project, current.assets, 4);
+		expect(fitted.clips.map((clip) => clip.duration)).toEqual([4, 2]);
+		expect(fitted.clips[0].speedRegions?.[0].end).toBe(4);
+		expect(fitted.clips[0].zoomRegions?.[0].end).toBe(4);
+		expect(getProjectDuration(fitted)).toBe(4);
+		expect(validateWorkspace({ ...current, project: fitted })).toBeTruthy();
+		const longer = fitClipsToDuration(current.project, current.assets, 20);
+		expect(longer.clips.map((clip) => clip.duration)).toEqual([10, 15]);
+		expect(getProjectDuration(longer)).toBe(20);
+	});
+
+	it("extends new source tails at normal speed without lengthening an existing speed region", () => {
+		const current = workspace();
+		current.project.clips = [
+			{
+				...current.project.clips[0],
+				duration: 4,
+				speedRegions: [{ id: "fast", start: 0, end: 4, rate: 2 }],
+			},
+		];
+		const longer = fitClipsToDuration(current.project, current.assets, 6);
+		expect(longer.clips[0].duration).toBe(8);
+		expect(longer.clips[0].speedRegions?.[0].end).toBe(4);
+		expect(getProjectDuration(longer)).toBe(6);
+		expect(() => fitClipsToDuration(current.project, current.assets, 9)).toThrow("길이가 부족");
+	});
 	it("extends photos when video reaches its source duration", () => {
 		const current = workspace();
 		const fitted = fitClipsToDuration(current.project, current.assets, 30);

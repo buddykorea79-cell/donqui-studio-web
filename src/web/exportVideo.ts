@@ -22,6 +22,7 @@ import {
 	type WebProject,
 } from "./project";
 import { drawFrame } from "./renderFrame";
+import { clipOutputToSourceTime, getClipOutputDuration, getClipTiming } from "./timelineEffects";
 
 const FPS = CLIP_EFFECT_FPS;
 const SAMPLE_RATE = 48_000;
@@ -68,6 +69,7 @@ type AudioSegment = {
 	trimStart: number;
 	duration: number;
 	volume: number;
+	rate?: number;
 };
 
 function checkAbort(signal?: AbortSignal) {
@@ -76,25 +78,26 @@ function checkAbort(signal?: AbortSignal) {
 
 /** Map an audio packet to a bounded output block, including trims at both boundaries. */
 export function audioPlacement(
-	segment: Pick<AudioSegment, "start" | "trimStart" | "duration">,
+	segment: Pick<AudioSegment, "start" | "trimStart" | "duration" | "rate">,
 	packetStart: number,
 	packetDuration: number,
 	blockStart: number,
 	blockDuration: number,
 ) {
+	const rate = segment.rate ?? 1;
 	const sourceStart = Math.max(
 		packetStart,
 		segment.trimStart,
-		segment.trimStart + blockStart - segment.start,
+		segment.trimStart + (blockStart - segment.start) * rate,
 	);
 	const sourceEnd = Math.min(
 		packetStart + packetDuration,
-		segment.trimStart + segment.duration,
-		segment.trimStart + blockStart + blockDuration - segment.start,
+		segment.trimStart + segment.duration * rate,
+		segment.trimStart + (blockStart + blockDuration - segment.start) * rate,
 	);
 	if (sourceEnd <= sourceStart) return null;
 	return {
-		when: Math.max(0, segment.start + sourceStart - segment.trimStart - blockStart),
+		when: Math.max(0, segment.start + (sourceStart - segment.trimStart) / rate - blockStart),
 		offset: Math.max(0, sourceStart - packetStart),
 		duration: sourceEnd - sourceStart,
 	};
@@ -114,8 +117,10 @@ async function mixAudioBlock(
 	for (const segment of segments) {
 		checkAbort(signal);
 		if (segment.start >= start + duration || segment.start + segment.duration <= start) continue;
-		const from = segment.trimStart + Math.max(0, start - segment.start);
-		const to = segment.trimStart + Math.min(segment.duration, start + duration - segment.start);
+		const rate = segment.rate ?? 1;
+		const from = segment.trimStart + Math.max(0, start - segment.start) * rate;
+		const to =
+			segment.trimStart + Math.min(segment.duration, start + duration - segment.start) * rate;
 		const sink = new AudioBufferSink(segment.track);
 		for await (const packet of sink.buffers(from, to)) {
 			checkAbort(signal);
@@ -123,6 +128,7 @@ async function mixAudioBlock(
 			if (!placement) continue;
 			const source = context.createBufferSource();
 			source.buffer = packet.buffer;
+			source.playbackRate.value = rate;
 			const gain = context.createGain();
 			gain.gain.value = segment.volume;
 			source.connect(gain).connect(context.destination);
@@ -166,6 +172,7 @@ export async function exportVideo(
 			length: number,
 			volume: number,
 			required = false,
+			rate = 1,
 		) => {
 			if (volume <= 0 || start >= duration) return;
 			const track = await inputFor(assetId).getPrimaryAudioTrack();
@@ -183,6 +190,7 @@ export async function exportVideo(
 				trimStart,
 				duration: Math.min(length, duration - start),
 				volume,
+				rate,
 			});
 		};
 		let timelineStart = 0;
@@ -190,9 +198,19 @@ export async function exportVideo(
 			checkAbort(signal);
 			const asset = assetMap.get(clip.assetId);
 			if (!asset) throw new Error("클립의 원본 미디어를 찾을 수 없습니다.");
-			if (asset.kind === "video")
-				await addAudio(asset.id, timelineStart, clip.trimStart, clip.duration, clip.volume);
-			timelineStart += clip.duration;
+			if (asset.kind === "video") {
+				for (const segment of getClipTiming(clip))
+					await addAudio(
+						asset.id,
+						timelineStart + segment.outputStart,
+						clip.trimStart + segment.sourceStart,
+						segment.outputEnd - segment.outputStart,
+						clip.volume,
+						false,
+						segment.rate,
+					);
+			}
+			timelineStart += getClipOutputDuration(clip);
 		}
 		for (const audio of project.audio)
 			await addAudio(
@@ -242,7 +260,7 @@ export async function exportVideo(
 			if (!asset) throw new Error("클립의 원본 미디어를 찾을 수 없습니다.");
 			const endFrame = Math.min(
 				totalFrames,
-				Math.ceil((timelineStart + clip.duration) * FPS - 1e-7),
+				Math.ceil((timelineStart + getClipOutputDuration(clip)) * FPS - 1e-7),
 			);
 			const startFrame = frameIndex;
 			const writeFrame = async (source: CanvasImageSource) => {
@@ -273,7 +291,10 @@ export async function exportVideo(
 				const clipStart = timelineStart;
 				function* timestamps() {
 					for (let index = startFrame; index < endFrame; index++)
-						yield Math.max(firstTimestamp, clip.trimStart + index / FPS - clipStart);
+						yield Math.max(
+							firstTimestamp,
+							clip.trimStart + clipOutputToSourceTime(clip, index / FPS - clipStart),
+						);
 				}
 				for await (const frame of sink.canvasesAtTimestamps(timestamps())) {
 					if (!frame)
@@ -281,7 +302,7 @@ export async function exportVideo(
 					await writeFrame(frame.canvas);
 				}
 			}
-			timelineStart += clip.duration;
+			timelineStart += getClipOutputDuration(clip);
 		}
 		videoSource.close();
 		if (audioSource) {

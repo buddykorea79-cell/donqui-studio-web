@@ -54,6 +54,37 @@ describe("audio trim and placement", () => {
 	it("omits packets outside the timeline block", () => {
 		expect(audioPlacement(segment, 7, 1, 8, 10)).toBeNull();
 	});
+	it("maps fast audio packet timestamps to output time and keeps source-length trims", () => {
+		const fast = { start: 3, trimStart: 5, duration: 2, rate: 2 };
+		expect(audioPlacement(fast, 7, 1, 0, 10)).toEqual({ when: 4, offset: 0, duration: 1 });
+		expect(audioPlacement(fast, 8.5, 1, 0, 10)).toEqual({
+			when: 4.75,
+			offset: 0,
+			duration: 0.5,
+		});
+	});
+	it("clips a fast packet across an output block boundary without a gap or overlap", () => {
+		const fast = { start: 9, trimStart: 5, duration: 2, rate: 2 };
+		expect(audioPlacement(fast, 6.5, 1, 0, 10)).toEqual({
+			when: 9.75,
+			offset: 0,
+			duration: 0.5,
+		});
+		expect(audioPlacement(fast, 6.5, 1, 10, 10)).toEqual({
+			when: 0,
+			offset: 0.5,
+			duration: 0.5,
+		});
+	});
+	it("extends slow audio to its output duration but excludes the next source interval", () => {
+		const slow = { start: 1, trimStart: 2, duration: 4, rate: 0.5 };
+		expect(audioPlacement(slow, 3.5, 1, 0, 10)).toEqual({
+			when: 4,
+			offset: 0,
+			duration: 0.5,
+		});
+		expect(audioPlacement(slow, 4, 1, 0, 10)).toBeNull();
+	});
 });
 
 describe("export preconditions", () => {

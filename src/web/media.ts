@@ -68,9 +68,10 @@ export function downloadBlob(blob: Blob, name: string) {
 
 export function formatTime(seconds: number) {
 	const value = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
-	return `${Math.floor(value / 60)
+	const tenths = Math.floor(value * 10 + 1e-7);
+	return `${Math.floor(tenths / 600)
 		.toString()
-		.padStart(2, "0")}:${Math.floor(value % 60)
+		.padStart(2, "0")}:${Math.floor((tenths % 600) / 10)
 		.toString()
-		.padStart(2, "0")}.${Math.floor((value % 1) * 10)}`;
+		.padStart(2, "0")}.${tenths % 10}`;
 }

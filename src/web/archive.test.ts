@@ -42,6 +42,29 @@ describe("portable Donqui web projects", () => {
 		expect(restored.project.clips[0].fit).toBeUndefined();
 		expect(restored.project.captions).toBeUndefined();
 		expect(restored.project.captionStyle).toBeUndefined();
+		expect(restored.project.clips[0].zoomRegions).toBeUndefined();
+		expect(restored.project.clips[0].speedRegions).toBeUndefined();
+	});
+
+	it("round-trips clip-relative zoom and speed ranges without losing split easing phases", async () => {
+		const original = workspace();
+		original.project.clips[0].zoomRegions = [
+			{
+				id: "zoom",
+				start: 1.25,
+				end: 3.75,
+				scale: 2.5,
+				focusX: 0.8,
+				focusY: 0.2,
+				easeInDuration: 0.25,
+				easeOutDuration: 0.25,
+				easeInOffset: 0.125,
+				easeOutOffset: 0,
+			},
+		];
+		original.project.clips[0].speedRegions = [{ id: "fast", start: 0.5, end: 4, rate: 2 }];
+		const restored = await decodeWorkspace(encodeWorkspace(original));
+		expect(restored.project).toEqual(original.project);
 	});
 
 	it("round-trips every effect, fit mode, styled captions and exact cue timings", async () => {

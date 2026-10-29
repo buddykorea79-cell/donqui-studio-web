@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Donqui timeline zoom and speed export test</title>
+		<style>
+			body { background: #10151b; color: #eef3f8; font: 16px system-ui; max-width: 1000px; margin: 48px auto; padding: 0 20px; }
+			button, a { display: inline-block; padding: 12px 20px; background: #14b8a6; color: #07131a; border: 0; border-radius: 8px; margin: 0 8px 8px 0; }
+			[hidden] { display: none; }
+			button:disabled { opacity: 0.5; }
+			pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 20px; background: #19232d; }
+			video { display: block; width: 100%; max-width: 640px; margin-top: 24px; }
+		</style>
+	</head>
+	<body>
+		<h1>구간 확대·배속의 실제 영상 내보내기 검사</h1>
+		<p>영상 원본을 직접 생성한 뒤 2배속·0.5배속, 확대 구간, 한글 자막, 배경음악을 적용합니다. 출력 파일을 다시 읽어 원본 프레임 위치, 확대와 자막 픽셀, 소리 주파수, 전체 길이를 확인합니다. 테스트 미디어는 브라우저 안에서만 처리합니다.</p>
+		<button id="run" type="button">Run timeline export test</button>
+		<a id="download" hidden>Download video</a>
+		<a id="backup" hidden>Download test project</a>
+		<pre id="result" aria-live="polite">Ready</pre>
+		<video id="video" controls></video>
+		<script type="module" src="./timeline-smoke.js"></script>
+	</body>
+</html>
