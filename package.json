@@ -36,7 +36,7 @@
 		"dev:web": "vite --config vite.web.config.ts",
 		"build:web": "tsc -p tsconfig.web.json --noEmit && vite build --config vite.web.config.ts",
 		"preview:web": "vite preview --config vite.web.config.ts",
-		"test:web": "vitest --run src/web",
+		"test:web": "vitest --run src/web src/lib/clip-effects",
 		"build": "tsc && vite build && electron-builder",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",

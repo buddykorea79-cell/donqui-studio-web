@@ -628,6 +628,57 @@ button svg {
 	background: #30383c;
 	margin: 20px 0 16px;
 }
+.field-note {
+	font-size: 10px;
+	line-height: 1.7;
+	color: #94a4a7;
+	margin: 8px 0;
+}
+.caption-editor {
+	border-top: 1px solid #30383c;
+	margin-top: 22px;
+	padding-top: 14px;
+}
+.caption-editor summary {
+	cursor: pointer;
+	font-size: 12px;
+	color: #d6e5de;
+}
+.caption-editor summary span {
+	font-size: 10px;
+	color: #94a4a7;
+	margin-left: 6px;
+}
+.caption-tools, .caption-time-fields {
+	display: flex;
+	gap: 8px;
+}
+.caption-tools button, .caption-time-fields .field {
+	flex: 1;
+	min-width: 0;
+}
+.caption-tools button, .caption-add {
+	font-size: 10px;
+	border: 1px solid #3b4447;
+	padding: 8px;
+}
+.caption-add {
+	width: 100%;
+}
+.caption-background {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	color: #a9b1b6;
+	font-size: 11px;
+}
+.caption-background input {
+	accent-color: var(--mint);
+}
+.field input[type="color"] {
+	height: 36px;
+	padding: 3px;
+}
 .selected-name {
 	display: flex;
 	align-items: center;

@@ -23,7 +23,10 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CLIP_EFFECTS, isClipEffectId, resolveClipEffect } from "../lib/clip-effects/catalog";
 import { decodeWorkspace, encodeWorkspace } from "./archive";
+import { CaptionEditor } from "./CaptionEditor";
+import { parseSrt, stringifySrt } from "./captions";
 import { downloadBlob, formatTime, importMedia } from "./media";
 import { Preview } from "./Preview";
 import {
@@ -31,6 +34,7 @@ import {
 	createClip,
 	createProject,
 	fitClipsToDuration,
+	getProjectCaptions,
 	getProjectDuration,
 	moveClip,
 	type WebAsset,
@@ -362,6 +366,35 @@ export function WebStudio() {
 			if (!end) throw new Error("먼저 음원을 추가해 주세요.");
 			commit({ ...workspace, project: fitClipsToDuration(project, assets, end) });
 			setNotice("영상·사진 길이를 음원 끝에 맞췄습니다.");
+		} catch (error) {
+			onError(error);
+		}
+	};
+	const importSubtitles = async (file: File) => {
+		setImporting(true);
+		setPlaying(false);
+		try {
+			if (file.size > 5_000_000) throw new Error("자막 파일은 5MB 이하로 가져와 주세요.");
+			const captions = parseSrt(await file.text());
+			const original = current.current;
+			commit({ ...original, project: { ...original.project, captions } });
+			setNotice(
+				`${captions.length}개 시간 자막을 가져왔습니다. 영상 구간 안의 자막이 미리보기와 내보내기에 표시됩니다.`,
+			);
+		} catch (error) {
+			onError(error);
+		} finally {
+			setImporting(false);
+		}
+	};
+	const exportSubtitles = () => {
+		try {
+			downloadBlob(
+				new Blob([stringifySrt(getProjectCaptions(project))], {
+					type: "application/x-subrip;charset=utf-8",
+				}),
+				`${project.title}.srt`,
+			);
 		} catch (error) {
 			onError(error);
 		}
@@ -810,6 +843,21 @@ export function WebStudio() {
 								<option value="1080x1080">정사각형 · 1080p</option>
 							</select>
 						</label>
+						<button
+							type="button"
+							className="caption-add"
+							disabled={!project.clips.length}
+							onClick={() =>
+								editProject({
+									clips: project.clips.map((clip) => ({
+										...clip,
+										effect: resolveClipEffect("random", crypto.randomUUID()),
+									})),
+								})
+							}
+						>
+							클립마다 무작위 효과
+						</button>
 						{selectedItem && selectedAsset ? (
 							<>
 								<div className="inspector-divider" />
@@ -879,24 +927,58 @@ export function WebStudio() {
 								{selectedClip && (
 									<>
 										<label className="field">
-											<span>화면 효과</span>
+											<span>Remotion 효과</span>
 											<select
 												value={selectedClip.effect}
-												onChange={(event) =>
-													updateClip({ effect: event.target.value as WebClip["effect"] })
-												}
+												onChange={(event) => {
+													if (isClipEffectId(event.target.value))
+														updateClip({ effect: event.target.value });
+												}}
 											>
 												<option value="none">없음</option>
-												<option value="zoom-in">천천히 확대</option>
-												<option value="zoom-out">천천히 축소</option>
-												<option value="fade">페이드 인·아웃</option>
+												{CLIP_EFFECTS.map((effect) => (
+													<option key={effect.id} value={effect.id}>
+														{effect.label}
+													</option>
+												))}
 											</select>
 										</label>
+										<p className="field-note">
+											{CLIP_EFFECTS.find((effect) => effect.id === selectedClip.effect)
+												?.description ?? "원본 화면을 그대로 보여 줍니다"}
+										</p>
+										<label className="field">
+											<span>화면 맞춤</span>
+											<select
+												value={selectedClip.fit ?? "contain"}
+												onChange={(event) =>
+													updateClip({ fit: event.target.value === "cover" ? "cover" : "contain" })
+												}
+											>
+												<option value="contain">전체 보이기</option>
+												<option value="cover">화면 채우기</option>
+											</select>
+										</label>
+										<button
+											type="button"
+											className="caption-add"
+											onClick={() =>
+												editProject({
+													clips: project.clips.map((clip) => ({
+														...clip,
+														effect: selectedClip.effect,
+														fit: selectedClip.fit,
+													})),
+												})
+											}
+										>
+											효과·화면 맞춤을 전체 클립에 적용
+										</button>
 										<label className="field">
 											<span>자막</span>
 											<textarea
 												rows={3}
-												maxLength={500}
+												maxLength={5_000}
 												placeholder="이 장면의 이야기를 적어 보세요"
 												value={selectedClip.caption}
 												onChange={(event) => updateClip({ caption: event.target.value })}
@@ -954,6 +1036,18 @@ export function WebStudio() {
 								</div>
 							</div>
 						)}
+						<CaptionEditor
+							project={project}
+							time={time}
+							duration={duration}
+							onChange={editProject}
+							onSeek={(position) => {
+								setTime(position);
+								setPlaying(false);
+							}}
+							onImport={(file) => void importSubtitles(file)}
+							onExport={exportSubtitles}
+						/>
 					</fieldset>
 					<div className="inspector-footer">
 						<Info size={14} />

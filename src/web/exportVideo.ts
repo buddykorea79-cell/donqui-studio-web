@@ -14,10 +14,16 @@ import {
 	Output,
 	WebMOutputFormat,
 } from "mediabunny";
-import { getProjectDuration, type WebAsset, type WebProject } from "./project";
+import { CLIP_EFFECT_FPS } from "../lib/clip-effects/catalog";
+import {
+	getProjectDuration,
+	getProjectFrameCount,
+	type WebAsset,
+	type WebProject,
+} from "./project";
 import { drawFrame } from "./renderFrame";
 
-const FPS = 30;
+const FPS = CLIP_EFFECT_FPS;
 const SAMPLE_RATE = 48_000;
 const AUDIO_BLOCK_SECONDS = 10;
 
@@ -227,7 +233,7 @@ export async function exportVideo(
 			: null;
 		if (audioSource) output.addAudioTrack(audioSource);
 		await output.start();
-		const totalFrames = Math.ceil(duration * FPS);
+		const totalFrames = getProjectFrameCount(project);
 		let frameIndex = 0;
 		timelineStart = 0;
 		for (const clip of project.clips) {
@@ -242,7 +248,11 @@ export async function exportVideo(
 			const writeFrame = async (source: CanvasImageSource) => {
 				checkAbort(signal);
 				const time = frameIndex / FPS;
-				drawFrame(context, source, clip, project.width, project.height, time - timelineStart);
+				drawFrame(context, source, clip, project.width, project.height, time - timelineStart, {
+					captions: project.captions,
+					captionStyle: project.captionStyle,
+					timelineTime: time,
+				});
 				await videoSource.add(time, Math.min(1 / FPS, duration - time));
 				frameIndex++;
 				onProgress?.((0.85 * frameIndex) / totalFrames);

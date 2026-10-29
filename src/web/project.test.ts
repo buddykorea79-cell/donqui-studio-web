@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { CLIP_EFFECTS } from "../lib/clip-effects/catalog";
+import { DEFAULT_CAPTION_STYLE, type WebCaption } from "./captions";
 import {
 	createAudio,
 	createClip,
 	createProject,
 	fitClipsToDuration,
 	getProjectDuration,
+	getProjectFrameCount,
 	moveClip,
 	validateWorkspace,
 	type WebAsset,
@@ -28,6 +31,83 @@ function workspace(): WebWorkspace {
 }
 
 describe("browser project validation", () => {
+	it("accepts older projects without fit, timed captions or caption styles", () => {
+		const current = workspace();
+		const restored = validateWorkspace(current);
+		expect(restored).toEqual(current);
+		expect(restored.project.clips[0].fit).toBeUndefined();
+		expect(restored.project.captions).toBeUndefined();
+		expect(restored.project.captionStyle).toBeUndefined();
+	});
+
+	it("accepts all shared Remotion effects and either media fitting mode", () => {
+		const current = workspace();
+		for (const { id } of CLIP_EFFECTS) {
+			for (const fit of ["contain", "cover"] as const) {
+				current.project.clips[0] = { ...current.project.clips[0], effect: id, fit };
+				expect(validateWorkspace(current).project.clips[0]).toMatchObject({ effect: id, fit });
+			}
+		}
+	});
+
+	it("rejects unknown effects and fit values in persisted project data", () => {
+		const current = workspace();
+		for (const invalid of [{ effect: "spin" }, { fit: "stretch" }]) {
+			expect(() =>
+				validateWorkspace({
+					...current,
+					project: { ...current.project, clips: [{ ...current.project.clips[0], ...invalid }] },
+				}),
+			).toThrow("데이터 형식");
+		}
+	});
+
+	it("rejects invalid caption timings, duplicate cue IDs and malformed styles", () => {
+		const current = workspace();
+		const caption: WebCaption = {
+			id: "caption",
+			text: "자막",
+			startMs: 1000,
+			endMs: 2000,
+			timestampMs: null,
+			confidence: null,
+		};
+		for (const change of [
+			{ startMs: -1 },
+			{ startMs: 2000 },
+			{ startMs: 1000.5 },
+			{ endMs: Number.NaN },
+			{ endMs: 86_400_001 },
+		]) {
+			expect(() =>
+				validateWorkspace({
+					...current,
+					project: { ...current.project, captions: [{ ...caption, ...change }] },
+				}),
+			).toThrow("데이터 형식");
+		}
+		expect(() =>
+			validateWorkspace({
+				...current,
+				project: { ...current.project, captions: [caption, caption] },
+			}),
+		).toThrow("중복된 자막");
+		for (const change of [
+			{ color: "red" },
+			{ color: "#abcd" },
+			{ fontSize: 0 },
+			{ fontSize: 0.11 },
+			{ position: "outside" },
+		]) {
+			expect(() =>
+				validateWorkspace({
+					...current,
+					project: { ...current.project, captionStyle: { ...DEFAULT_CAPTION_STYLE, ...change } },
+				}),
+			).toThrow("데이터 형식");
+		}
+	});
+
 	it("preserves media blobs and keeps audio from extending the visual timeline", () => {
 		const current = workspace();
 		const valid = validateWorkspace(current);
@@ -93,5 +173,25 @@ describe("fitting visuals to music", () => {
 		current.project.clips = [current.project.clips[0]];
 		expect(() => fitClipsToDuration(current.project, current.assets, 30)).toThrow("길이가 부족");
 		expect(() => fitClipsToDuration(current.project, current.assets, 0)).toThrow("0초보다");
+	});
+});
+
+describe("output frame grid", () => {
+	it("does not add a phantom final frame when fractional clip lengths accumulate", () => {
+		const current = workspace();
+		current.project.clips = current.project.clips.map((clip, index) => ({
+			...clip,
+			duration: index === 0 ? 0.1 : 0.2,
+		}));
+		expect(getProjectDuration(current.project)).toBeGreaterThan(0.3);
+		expect(getProjectFrameCount(current.project)).toBe(9);
+		expect((getProjectFrameCount(current.project) - 1) / 30).toBe(8 / 30);
+	});
+
+	it("keeps a genuine partial final frame and returns no frames for an empty timeline", () => {
+		const current = workspace();
+		current.project.clips = [{ ...current.project.clips[0], duration: 0.301 }];
+		expect(getProjectFrameCount(current.project)).toBe(10);
+		expect(getProjectFrameCount(createProject())).toBe(0);
 	});
 });

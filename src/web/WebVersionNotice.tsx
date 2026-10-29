@@ -54,7 +54,7 @@ export function WebVersionNotice({ open, onDismiss }: { open: boolean; onDismiss
 				내보내기를 사용할 수 있습니다.
 			</p>
 			<ul>
-				<li>AI 장면 분석·자동 자막·고급 효과 미지원</li>
+				<li>AI 장면 분석·음성 인식 자동 자막 미지원</li>
 				<li>마이크·웹캠 녹화 및 합성·커서 추적 미지원</li>
 				<li>일부 코덱·긴 고해상도 영상은 브라우저 성능에 따라 제한</li>
 				<li>작업은 이 브라우저에만 저장되며, 기존 로컬 프로젝트와 호환되지 않음</li>

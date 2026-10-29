@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Donqui effects and captions export test</title>
+		<style>
+			body { background: #10151b; color: #eef3f8; font: 16px system-ui; max-width: 1000px; margin: 48px auto; padding: 0 20px; }
+			button, a { display: inline-block; padding: 12px 20px; background: #14b8a6; color: #07131a; border: 0; border-radius: 8px; margin: 0 8px 8px 0; }
+			[hidden] { display: none; }
+			button:disabled { opacity: 0.5; }
+			pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 20px; background: #19232d; }
+			video { display: block; width: 100%; max-width: 640px; margin-top: 24px; }
+			#portrait { width: 270px; }
+		</style>
+	</head>
+	<body>
+		<h1>Effects, subtitles and real browser export</h1>
+		<p>This developer-only test exports all ten original motion effects, contain/cover, trimmed video, timed Korean SRT subtitles and mixed audio. It decodes both landscape and portrait results, compares frames with the preview renderer, and checks that each effect visibly differs from no effect. All generated media stays in this browser.</p>
+		<button id="run" type="button">Run effects export test</button>
+		<a id="download" hidden>Download landscape</a>
+		<a id="download-portrait" hidden>Download portrait</a>
+		<pre id="result" aria-live="polite">Ready</pre>
+		<video id="video" controls></video>
+		<video id="portrait" controls></video>
+		<script type="module" src="./effects-smoke.js"></script>
+	</body>
+</html>

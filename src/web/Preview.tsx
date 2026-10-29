@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { WebAsset, WebAudio, WebProject } from "./project";
+import { CLIP_EFFECT_FPS } from "../lib/clip-effects/catalog";
+import { getProjectFrameCount, type WebAsset, type WebAudio, type WebProject } from "./project";
 import { drawFrame } from "./renderFrame";
 
 function syncMedia(
@@ -87,15 +88,20 @@ export function Preview({
 	const video = useRef<HTMLVideoElement>(null);
 	const image = useRef<HTMLImageElement>(null);
 	const [loaded, setLoaded] = useState(0);
+	// Scrubbing and the final still use the same output frame grid as the exporter.
+	const lastFrame = Math.max(0, getProjectFrameCount(project) - 1);
+	const frameTime =
+		Math.min(lastFrame, Math.max(0, Math.floor(time * CLIP_EFFECT_FPS + 1e-7))) / CLIP_EFFECT_FPS;
 	let start = 0;
 	const clip =
 		project.clips.find((item, index) => {
-			if (time < start + item.duration || index === project.clips.length - 1) return true;
+			if (frameTime < start + item.duration - 1e-7 || index === project.clips.length - 1)
+				return true;
 			start += item.duration;
 			return false;
 		}) ?? null;
 	const asset = assets.find((item) => item.id === clip?.assetId);
-	const localTime = clip ? Math.min(clip.duration, Math.max(0, time - start)) : 0;
+	const localTime = clip ? Math.min(clip.duration, Math.max(0, frameTime - start)) : 0;
 	const sourceUrl = asset && urls.get(asset.id);
 	useEffect(() => {
 		if (!sourceUrl) return;
@@ -120,12 +126,27 @@ export function Preview({
 				source instanceof HTMLImageElement
 					? source.complete && source.naturalWidth > 0
 					: source instanceof HTMLVideoElement && source.readyState >= 2;
-			drawFrame(context, ready ? source : null, clip, project.width, project.height, localTime);
+			drawFrame(context, ready ? source : null, clip, project.width, project.height, localTime, {
+				captions: project.captions,
+				captionStyle: project.captionStyle,
+				timelineTime: frameTime,
+			});
 			if (playing) frame = requestAnimationFrame(paint);
 		};
 		paint();
 		return () => cancelAnimationFrame(frame);
-	}, [clip, asset, project.width, project.height, localTime, playing, loaded]);
+	}, [
+		clip,
+		asset,
+		project.width,
+		project.height,
+		project.captions,
+		project.captionStyle,
+		frameTime,
+		localTime,
+		playing,
+		loaded,
+	]);
 	return (
 		<div className="preview-picture" style={{ aspectRatio: `${project.width}/${project.height}` }}>
 			<canvas

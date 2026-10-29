@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CLIP_EFFECTS } from "../lib/clip-effects/catalog";
 import { decodeWorkspace, encodeWorkspace } from "./archive";
 import { createClip, createProject, type WebWorkspace } from "./project";
 
@@ -34,6 +35,46 @@ async function changeHeader(blob: Blob, mutate: (header: Record<string, unknown>
 }
 
 describe("portable Donqui web projects", () => {
+	it("loads an older backup without new effect fitting and caption fields", async () => {
+		const original = workspace();
+		const restored = await decodeWorkspace(encodeWorkspace(original));
+		expect(restored.project).toEqual(original.project);
+		expect(restored.project.clips[0].fit).toBeUndefined();
+		expect(restored.project.captions).toBeUndefined();
+		expect(restored.project.captionStyle).toBeUndefined();
+	});
+
+	it("round-trips every effect, fit mode, styled captions and exact cue timings", async () => {
+		const original = workspace();
+		original.project.clips = CLIP_EFFECTS.map((effect, index) => ({
+			...createClip(original.assets[0]),
+			effect: effect.id,
+			fit: index % 2 ? "contain" : "cover",
+			caption: `클립 ${index + 1}의 자막`,
+		}));
+		original.project.captions = [
+			{
+				id: "first-cue",
+				text: "한글과 Unicode 🌿\n두 줄 자막",
+				startMs: 1234,
+				endMs: 5678,
+				timestampMs: null,
+				confidence: null,
+			},
+		];
+		original.project.captionStyle = {
+			fontSize: 0.065,
+			color: "#aabbcc",
+			position: "top",
+			background: false,
+		};
+		const restored = await decodeWorkspace(encodeWorkspace(original));
+		expect(restored.project).toEqual(original.project);
+		expect(await restored.assets[0].blob.arrayBuffer()).toEqual(
+			await original.assets[0].blob.arrayBuffer(),
+		);
+	});
+
 	it("round-trips timeline, Unicode names and exact original media bytes", async () => {
 		const original = workspace();
 		const decoded = await decodeWorkspace(encodeWorkspace(original));

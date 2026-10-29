@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+	CLIP_EFFECT_FPS,
+	type ClipEffectId,
+	type ClipFit,
+	isClipEffectId,
+} from "../lib/clip-effects/catalog";
+import type { WebCaption, WebCaptionStyle } from "./captions";
 
 export type WebAsset = {
 	id: string;
@@ -16,7 +23,8 @@ export type WebClip = {
 	trimStart: number;
 	duration: number;
 	volume: number;
-	effect: "none" | "zoom-in" | "zoom-out" | "fade";
+	effect: ClipEffectId;
+	fit?: ClipFit;
 	caption: string;
 };
 
@@ -36,6 +44,8 @@ export type WebProject = {
 	height: number;
 	clips: WebClip[];
 	audio: WebAudio[];
+	captions?: WebCaption[];
+	captionStyle?: WebCaptionStyle;
 	updatedAt: string;
 };
 
@@ -54,7 +64,8 @@ const clipSchema = z.object({
 	trimStart: seconds,
 	duration: seconds.positive(),
 	volume,
-	effect: z.enum(["none", "zoom-in", "zoom-out", "fade"]),
+	effect: z.custom<ClipEffectId>(isClipEffectId),
+	fit: z.enum(["contain", "cover"]).optional(),
 	caption: z.string().max(5_000),
 });
 const workspaceSchema = z.object({
@@ -77,6 +88,29 @@ const workspaceSchema = z.object({
 			)
 			.max(10_000),
 		updatedAt: z.iso.datetime(),
+		captions: z
+			.array(
+				z
+					.object({
+						id: identifier,
+						text: z.string().max(5_000),
+						startMs: z.number().int().min(0).max(86_400_000),
+						endMs: z.number().int().min(1).max(86_400_000),
+						timestampMs: z.number().finite().min(0).max(86_400_000).nullable(),
+						confidence: z.number().finite().min(0).max(1).nullable(),
+					})
+					.refine((cue) => cue.endMs > cue.startMs),
+			)
+			.max(10_000)
+			.optional(),
+		captionStyle: z
+			.object({
+				fontSize: z.number().finite().min(0.02).max(0.1),
+				color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+				position: z.enum(["top", "center", "bottom"]),
+				background: z.boolean(),
+			})
+			.optional(),
 	}),
 	assets: z
 		.array(
@@ -105,6 +139,11 @@ export function validateWorkspace(value: unknown): WebWorkspace {
 		throw new Error("프로젝트에 중복된 미디어 ID가 있습니다.");
 	}
 	const ids = new Set<string>();
+	for (const caption of workspace.project.captions ?? []) {
+		if (ids.has(caption.id)) throw new Error("프로젝트에 중복된 자막 ID가 있습니다.");
+		ids.add(caption.id);
+	}
+	ids.clear();
 	for (const item of [...workspace.project.clips, ...workspace.project.audio]) {
 		if (ids.has(item.id)) throw new Error("프로젝트에 중복된 클립 ID가 있습니다.");
 		ids.add(item.id);
@@ -161,6 +200,30 @@ export function createAudio(asset: WebAsset): WebAudio {
 /** Visual clips define the movie's duration; audio outside that range is trimmed. */
 export function getProjectDuration(project: WebProject): number {
 	return project.clips.reduce((duration, clip) => duration + clip.duration, 0);
+}
+
+export function getProjectFrameCount(project: WebProject): number {
+	const duration = getProjectDuration(project);
+	return duration > 0 ? Math.max(1, Math.ceil(duration * CLIP_EFFECT_FPS - 1e-7)) : 0;
+}
+
+/** Include both per-clip text and timed subtitles when saving a standalone SRT. */
+export function getProjectCaptions(project: WebProject): WebCaption[] {
+	let start = 0;
+	const captions = [...(project.captions ?? [])];
+	for (const clip of project.clips) {
+		if (clip.caption.trim())
+			captions.push({
+				id: `clip-${clip.id}`,
+				text: clip.caption,
+				startMs: Math.round(start * 1000),
+				endMs: Math.max(Math.round(start * 1000) + 1, Math.round((start + clip.duration) * 1000)),
+				timestampMs: null,
+				confidence: null,
+			});
+		start += clip.duration;
+	}
+	return captions.filter((caption) => caption.text.trim()).sort((a, b) => a.startMs - b.startMs);
 }
 
 export function moveClip(project: WebProject, clipId: string, direction: -1 | 1): WebProject {
