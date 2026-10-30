@@ -7,7 +7,14 @@ import { CLIP_EFFECTS } from "../lib/clip-effects/catalog";
 import { parseSrt } from "./captions";
 import { exportVideo } from "./exportVideo";
 import { downloadBlob, importMedia } from "./media";
-import { createClip, createProject, type WebAsset, type WebWorkspace } from "./project";
+import {
+	createAudio,
+	createClip,
+	createProject,
+	getProjectDuration,
+	type WebAsset,
+	type WebWorkspace,
+} from "./project";
 import { loadWorkspace, saveWorkspace } from "./storage";
 import { WebStudio } from "./WebStudio";
 import { WEB_NOTICE_SEEN_KEY } from "./WebVersionNotice";
@@ -61,6 +68,15 @@ async function renderReady() {
 
 async function finishSave() {
 	await act(async () => vi.advanceTimersByTimeAsync(650));
+}
+
+function selectRange(start: number, end: number) {
+	fireEvent.change(screen.getByRole("spinbutton", { name: "선택 시작 (초)" }), {
+		target: { value: String(start) },
+	});
+	fireEvent.change(screen.getByRole("spinbutton", { name: "선택 끝 (초)" }), {
+		target: { value: String(end) },
+	});
 }
 
 beforeEach(() => {
@@ -441,5 +457,188 @@ describe("effects and subtitles in the editor", () => {
 		expect(screen.getByRole("textbox", { name: "시간 자막 내용" })).toHaveValue("가져온 자막");
 		fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
 		expect(screen.getByRole("textbox", { name: "시간 자막 내용" })).toHaveValue("보존할 자막");
+	});
+});
+
+describe("timeline editing workflows", () => {
+	it("applies a speed range across clips as one undoable edit and exports the restored result", async () => {
+		const original = savedWorkspace();
+		original.project.clips.push(createClip(original.assets[0]));
+		original.project.clips[0].caption = "첫 장면";
+		original.project.clips[0].zoomRegions = [
+			{ id: "zoom", start: 3, end: 5, scale: 2, focusX: 0.25, focusY: 0.75 },
+		];
+		vi.mocked(loadWorkspace).mockResolvedValue(original);
+		const result = { blob: new Blob(["movie"]), extension: "mp4" as const };
+		vi.mocked(exportVideo).mockResolvedValue(result);
+		await renderReady();
+		selectRange(4, 6);
+		fireEvent.click(screen.getByRole("button", { name: "+ 속도" }));
+		await finishSave();
+		const edited = vi.mocked(saveWorkspace).mock.lastCall![0].project;
+		expect(edited.clips.map((clip) => clip.speedRegions)).toEqual([
+			[expect.objectContaining({ start: 4, end: 5, rate: 2 })],
+			[expect.objectContaining({ start: 0, end: 1, rate: 2 })],
+		]);
+		expect(edited.clips[0].zoomRegions).toEqual(original.project.clips[0].zoomRegions);
+		expect(edited.clips[0].caption).toBe("첫 장면");
+		expect(getProjectDuration(edited)).toBe(9);
+		expect(screen.getByRole("button", { name: "선택 구간 재생" })).toBeDisabled();
+		fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+		await finishSave();
+		expect(vi.mocked(saveWorkspace).mock.lastCall![0].project).toEqual(original.project);
+		fireEvent.click(screen.getByRole("button", { name: "다시 실행" }));
+		await act(async () => fireEvent.click(screen.getByRole("button", { name: "영상 내보내기" })));
+		expect(vi.mocked(exportVideo).mock.lastCall![0]).toEqual(edited);
+		expect(downloadBlob).toHaveBeenCalledWith(result.blob, `${original.project.title}.mp4`);
+	});
+
+	it("deletes the marked range before the selected clip and keeps editing shortcuts out of inputs", async () => {
+		const original = savedWorkspace();
+		const music: WebAsset = {
+			...photo(),
+			id: "music",
+			name: "music.mp3",
+			kind: "audio",
+			duration: 8,
+		};
+		original.assets.push(music);
+		original.project.audio = [createAudio(music)];
+		original.project.captions = [
+			{
+				id: "caption",
+				text: "시간 자막",
+				startMs: 2500,
+				endMs: 4000,
+				timestampMs: null,
+				confidence: null,
+			},
+		];
+		vi.mocked(loadWorkspace).mockResolvedValue(original);
+		await renderReady();
+		fireEvent.click(screen.getByRole("button", { name: /01.*trip.jpg/ }));
+		selectRange(1, 2);
+		const title = screen.getByRole("textbox", { name: "프로젝트 이름" });
+		fireEvent.keyDown(title, { key: "Delete" });
+		fireEvent.keyDown(title, { key: "s" });
+		fireEvent.keyDown(title, { key: "z", ctrlKey: true });
+		expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
+		expect(screen.getByRole("button", { name: /01.*trip.jpg/ })).toBeVisible();
+		fireEvent.keyDown(window, { key: "Delete" });
+		await finishSave();
+		const edited = vi.mocked(saveWorkspace).mock.lastCall![0];
+		expect(
+			edited.project.clips.map(({ trimStart, duration }) => ({ trimStart, duration })),
+		).toEqual([
+			{ trimStart: 0, duration: 1 },
+			{ trimStart: 0, duration: 3 },
+		]);
+		expect(new Set(edited.project.clips.map((clip) => clip.id)).size).toBe(2);
+		expect(edited.project.audio).toEqual(original.project.audio);
+		expect(edited.project.captions).toEqual(original.project.captions);
+		expect(edited.assets).toEqual(original.assets);
+		expect(screen.getByRole("button", { name: "선택 구간 재생" })).toBeDisabled();
+		fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+		await finishSave();
+		expect(vi.mocked(saveWorkspace).mock.lastCall![0].project).toEqual(original.project);
+	});
+
+	it("deletes a selected effect before its containing clip", async () => {
+		const original = savedWorkspace();
+		vi.mocked(loadWorkspace).mockResolvedValue(original);
+		await renderReady();
+		fireEvent.click(screen.getByRole("button", { name: /01.*trip.jpg/ }));
+		fireEvent.click(screen.getByRole("button", { name: "+ 돋보기" }));
+		expect(screen.getByRole("region", { name: "타임라인 구간 편집" })).toBeVisible();
+		fireEvent.keyDown(window, { key: "Delete" });
+		await finishSave();
+		const clips = vi.mocked(saveWorkspace).mock.lastCall![0].project.clips;
+		expect(clips).toHaveLength(1);
+		expect(clips[0].duration).toBe(5);
+		expect(clips[0].zoomRegions).toEqual([]);
+		expect(screen.queryByRole("region", { name: "타임라인 구간 편집" })).not.toBeInTheDocument();
+	});
+
+	it("clears an undone effect selection so Delete can remove the selected clip", async () => {
+		vi.mocked(loadWorkspace).mockResolvedValue(savedWorkspace());
+		await renderReady();
+		fireEvent.click(screen.getByRole("button", { name: /01.*trip.jpg/ }));
+		fireEvent.click(screen.getByRole("button", { name: "+ 속도" }));
+		fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+		expect(screen.queryByRole("region", { name: "타임라인 구간 편집" })).not.toBeInTheDocument();
+		fireEvent.keyDown(window, { key: "Delete" });
+		await finishSave();
+		expect(vi.mocked(saveWorkspace).mock.lastCall![0].project.clips).toEqual([]);
+	});
+
+	it("converts numeric source trims through speed regions and exposes extensions at normal speed", async () => {
+		const original = savedWorkspace();
+		original.assets[0] = { ...original.assets[0], kind: "video", name: "trip.mp4", duration: 12 };
+		original.project.clips[0] = {
+			...original.project.clips[0],
+			trimStart: 2,
+			duration: 6,
+			speedRegions: [{ id: "speed", start: 1, end: 5, rate: 2 }],
+		};
+		vi.mocked(loadWorkspace).mockResolvedValue(original);
+		await renderReady();
+		fireEvent.click(screen.getByRole("button", { name: /01.*trip.mp4/ }));
+		fireEvent.change(screen.getByRole("spinbutton", { name: "원본 구간 시작 (초)" }), {
+			target: { value: "3" },
+		});
+		expect(screen.getByRole("spinbutton", { name: "원본 구간 길이 (초)" })).toHaveValue(5);
+		fireEvent.change(screen.getByRole("spinbutton", { name: "원본 구간 길이 (초)" }), {
+			target: { value: "3" },
+		});
+		await finishSave();
+		let edited = vi.mocked(saveWorkspace).mock.lastCall![0].project;
+		expect(edited.clips[0]).toMatchObject({
+			trimStart: 3,
+			duration: 3,
+			speedRegions: [{ start: 0, end: 3, rate: 2 }],
+		});
+		expect(getProjectDuration(edited)).toBe(1.5);
+		fireEvent.change(screen.getByRole("spinbutton", { name: "원본 구간 시작 (초)" }), {
+			target: { value: "1" },
+		});
+		fireEvent.change(screen.getByRole("spinbutton", { name: "원본 구간 길이 (초)" }), {
+			target: { value: "6" },
+		});
+		await finishSave();
+		edited = vi.mocked(saveWorkspace).mock.lastCall![0].project;
+		expect(edited.clips[0]).toMatchObject({
+			trimStart: 1,
+			duration: 6,
+			speedRegions: [{ start: 2, end: 5, rate: 2 }],
+		});
+		expect(getProjectDuration(edited)).toBe(4.5);
+	});
+
+	it("stops at the selected range end and clears that playback limit when seeking outside", async () => {
+		vi.mocked(loadWorkspace).mockResolvedValue(savedWorkspace());
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+			window.setTimeout(() => callback(performance.now()), 16),
+		);
+		vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+		await renderReady();
+		const playhead = screen.getByRole("slider", { name: "재생 위치" });
+		fireEvent.change(playhead, { target: { value: "1" } });
+		fireEvent.keyDown(window, { key: "i" });
+		fireEvent.change(playhead, { target: { value: "2" } });
+		fireEvent.keyDown(window, { key: "o" });
+		fireEvent.click(screen.getByRole("button", { name: "선택 구간 재생" }));
+		expect(playhead).toHaveValue("1");
+		expect(screen.getByRole("button", { name: "일시 정지" })).toBeVisible();
+		await act(async () => vi.advanceTimersByTimeAsync(1500));
+		expect(playhead).toHaveValue("2");
+		expect(screen.getByRole("button", { name: "재생" })).toBeVisible();
+		fireEvent.click(screen.getByRole("button", { name: "선택 구간 재생" }));
+		fireEvent.change(playhead, { target: { value: "3" } });
+		expect(playhead).toHaveValue("3");
+		fireEvent.click(screen.getByRole("button", { name: "재생" }));
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		expect(Number((playhead as HTMLInputElement).value)).toBeGreaterThan(3.4);
+		expect(Number((playhead as HTMLInputElement).value)).toBeLessThan(3.6);
+		expect(screen.getByRole("button", { name: "일시 정지" })).toBeVisible();
 	});
 });

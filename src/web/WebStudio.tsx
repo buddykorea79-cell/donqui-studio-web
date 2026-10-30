@@ -49,11 +49,21 @@ import { newRegionRange, type RegionKind, type RegionSelection } from "./regionE
 import { clearWorkspace, loadWorkspace, saveWorkspace } from "./storage";
 import { TimelineRegionEditor } from "./TimelineRegionEditor";
 import {
+	applyTimelineRegion,
+	deleteTimelineRange,
+	getTimelineClips,
+	normalizeTimelineRange,
+	resizeClipEdge,
+	type TimelineRange,
+} from "./timelineEditing";
+import {
+	clipSourceToOutputTime,
 	getClipOutputDuration,
 	normalizeClipRegions,
 	splitClipAtOutputTime,
 } from "./timelineEffects";
 import { useScreenRecording } from "./useScreenRecording";
+import { useTimelineShortcuts } from "./useTimelineShortcuts";
 import { VisualTimeline } from "./VisualTimeline";
 import { hasSeenWebNotice, rememberWebNotice, WebVersionNotice } from "./WebVersionNotice";
 
@@ -90,7 +100,7 @@ function NumberField({
 				step="0.1"
 				min={min}
 				max={max}
-				value={Math.round(value * 100) / 100}
+				value={Math.round(value * 1000) / 1000}
 				onChange={(event) => {
 					const next = event.currentTarget.valueAsNumber;
 					if (Number.isFinite(next)) onChange(Math.max(min, Math.min(max ?? 86_400, next)));
@@ -112,6 +122,8 @@ export function WebStudio() {
 	const [filter, setFilter] = useState<"all" | WebAsset["kind"]>("all");
 	const [selected, setSelected] = useState<string | null>(null);
 	const [selectedRegion, setSelectedRegion] = useState<RegionSelection | null>(null);
+	const [range, setRange] = useState<TimelineRange | null>(null);
+	const [playbackRange, setPlaybackRange] = useState<TimelineRange | null>(null);
 	const [time, setTime] = useState(0);
 	const [playing, setPlaying] = useState(false);
 	const [progress, setProgress] = useState<number | null>(null);
@@ -128,6 +140,8 @@ export function WebStudio() {
 	const generation = useRef(0);
 	const { project, assets } = workspace;
 	const duration = getProjectDuration(project);
+	const activeRange = range ? normalizeTimelineRange(range, duration) : null;
+	const playbackEnd = Math.min(duration, playbackRange?.end ?? duration);
 	const onError = useCallback((error: unknown) => setNotice(messageOf(error)), []);
 	const dismissWebNotice = () => {
 		rememberWebNotice();
@@ -210,18 +224,18 @@ export function WebStudio() {
 		const tick = (now: number) => {
 			const delta = (now - previous) / 1_000;
 			previous = now;
-			setTime((value) => Math.min(duration, value + delta));
+			setTime((value) => Math.min(playbackEnd, value + delta));
 			frame = requestAnimationFrame(tick);
 		};
 		frame = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(frame);
-	}, [playing, duration]);
+	}, [playing, playbackEnd]);
 	useEffect(() => {
-		if (time >= duration) {
+		if (time >= playbackEnd) {
 			setPlaying(false);
-			setTime(duration);
+			setTime(playbackEnd);
 		}
-	}, [time, duration]);
+	}, [time, playbackEnd]);
 
 	const commit = useCallback((next: WebWorkspace) => {
 		const previous = current.current;
@@ -231,6 +245,9 @@ export function WebStudio() {
 		current.current = updated;
 		setWorkspace(updated);
 		setExportResult(null);
+		setPlaying(false);
+		setRange(null);
+		setPlaybackRange(null);
 	}, []);
 	const editProject = (change: Partial<WebProject>) =>
 		commit({ ...workspace, project: { ...project, ...change } });
@@ -239,9 +256,12 @@ export function WebStudio() {
 		if (!previous) return;
 		setFuture((items) => [...items, workspace]);
 		setPast(past.slice(0, -1));
+		setSelectedRegion(null);
 		setWorkspace(previous);
 		current.current = previous;
 		setPlaying(false);
+		setRange(null);
+		setPlaybackRange(null);
 		setExportResult(null);
 	};
 	const redo = () => {
@@ -249,9 +269,12 @@ export function WebStudio() {
 		if (!next) return;
 		setPast((items) => [...items, workspace]);
 		setFuture(future.slice(0, -1));
+		setSelectedRegion(null);
 		setWorkspace(next);
 		current.current = next;
 		setPlaying(false);
+		setRange(null);
+		setPlaybackRange(null);
 		setExportResult(null);
 	};
 	const addAssetToTimeline = (asset: WebAsset) => {
@@ -347,6 +370,17 @@ export function WebStudio() {
 			),
 		});
 	const addRegion = (kind: RegionKind) => {
+		if (activeRange) {
+			const result = applyTimelineRegion(project, kind, activeRange);
+			commit({ ...workspace, project: result.project });
+			setSelected(result.selection?.clipId ?? null);
+			setSelectedRegion(result.selection);
+			setTime(Math.min(activeRange.start, getProjectDuration(result.project)));
+			setNotice(
+				"선택한 영상 구간에 효과를 적용했습니다. 클립별 효과 블록에서 값을 조절할 수 있습니다.",
+			);
+			return;
+		}
 		let start = 0;
 		const clip = project.clips.find((item, index) => {
 			if (time < start + getClipOutputDuration(item) || index === project.clips.length - 1)
@@ -387,26 +421,30 @@ export function WebStudio() {
 			audio: project.audio.map((item) => (item.id === selected ? { ...item, ...change } : item)),
 		});
 	const removeSelected = () => {
+		if (!selectedItem) return;
 		editProject({
 			clips: project.clips.filter((clip) => clip.id !== selected),
 			audio: project.audio.filter((item) => item.id !== selected),
 		});
 		setSelected(null);
+		setSelectedRegion(null);
 	};
 	const splitClip = () => {
-		if (!selectedClip) return;
-		const index = project.clips.indexOf(selectedClip);
-		const start = selectedClipStart;
+		const span = getTimelineClips(project).find((item) => time >= item.start && time < item.end);
+		if (!span) return;
+		const clip = span.clip;
+		const index = project.clips.indexOf(clip);
+		const start = span.start;
 		const offset = time - start;
-		if (offset < 0.1 || offset > getClipOutputDuration(selectedClip) - 0.1) {
-			setNotice("선택한 클립 안쪽으로 재생 위치를 옮긴 뒤 나누세요.");
+		if (offset < 1 / 30 - 1e-7 || offset > getClipOutputDuration(clip) - 1 / 30 + 1e-7) {
+			setNotice("클립 양끝에서 한 프레임 이상 떨어진 위치에서 나눠 주세요.");
 			return;
 		}
 		const [first, second] = splitClipAtOutputTime(
-			selectedClip,
+			clip,
 			offset,
 			crypto.randomUUID(),
-			selectedAsset?.kind === "image",
+			assets.find((asset) => asset.id === clip.assetId)?.kind === "image",
 		);
 		editProject({
 			clips: [...project.clips.slice(0, index), first, second, ...project.clips.slice(index + 1)],
@@ -414,6 +452,96 @@ export function WebStudio() {
 		setSelected(second.id);
 		setSelectedRegion(null);
 	};
+	const seekTo = (position: number) => {
+		setTime(Math.max(0, Math.min(duration, position)));
+		setPlaying(false);
+		setPlaybackRange(null);
+	};
+	const playFrom = (position: number) => {
+		if (!duration || busy) return;
+		setPlaybackRange(null);
+		setTime(Math.max(0, Math.min(duration, position)));
+		setPlaying(position < duration);
+	};
+	const togglePlay = () => {
+		if (playing) setPlaying(false);
+		else playFrom(time >= duration ? 0 : time);
+	};
+	const changeRange = (next: TimelineRange | null) => {
+		setRange(next);
+		setSelectedRegion(null);
+		setPlaying(false);
+		setPlaybackRange(null);
+	};
+	const resizeTimelineClip = (clipId: string, edge: "start" | "end", delta: number) => {
+		const clip = project.clips.find((item) => item.id === clipId);
+		const asset = assets.find((item) => item.id === clip?.assetId);
+		if (!clip || !asset) return;
+		const next = resizeClipEdge(clip, asset, edge, delta);
+		if (next === clip) return;
+		editProject({ clips: project.clips.map((item) => (item.id === clipId ? next : item)) });
+		setSelected(clipId);
+		setSelectedRegion(null);
+	};
+	const deleteRange = () => {
+		if (!activeRange) return;
+		const next = deleteTimelineRange(project, activeRange, assets);
+		commit({ ...workspace, project: next });
+		setTime(Math.min(activeRange.start, getProjectDuration(next)));
+		setSelected(null);
+		setSelectedRegion(null);
+	};
+	const deleteSelection = () => {
+		if (activeRange) {
+			deleteRange();
+			return;
+		}
+		if (
+			selectedClip &&
+			selectedRegion?.clipId === selectedClip.id &&
+			(selectedRegion.kind === "zoom" ? selectedClip.zoomRegions : selectedClip.speedRegions)?.some(
+				(item) => item.id === selectedRegion.id,
+			)
+		) {
+			updateClip(
+				selectedRegion.kind === "zoom"
+					? {
+							zoomRegions: selectedClip.zoomRegions?.filter(
+								(item) => item.id !== selectedRegion.id,
+							),
+						}
+					: {
+							speedRegions: selectedClip.speedRegions?.filter(
+								(item) => item.id !== selectedRegion.id,
+							),
+						},
+			);
+			setSelectedRegion(null);
+			return;
+		}
+		removeSelected();
+	};
+	const markRangeStart = () =>
+		changeRange({ start: time, end: Math.max(time, range?.end ?? time) });
+	const markRangeEnd = () =>
+		changeRange({ start: Math.min(time, range?.start ?? time), end: time });
+	useTimelineShortcuts({
+		enabled: ready && !busy && !showHelp,
+		onTogglePlay: togglePlay,
+		onSplit: splitClip,
+		onDelete: deleteSelection,
+		onUndo: undo,
+		onRedo: redo,
+		onSeekBy: (delta) => seekTo(time + delta),
+		onSeekBoundary: (edge) => seekTo(edge === "start" ? 0 : duration),
+		onMarkStart: markRangeStart,
+		onMarkEnd: markRangeEnd,
+		onClear: () => {
+			changeRange(null);
+			setSelectedRegion(null);
+			setSelected(null);
+		},
+	});
 	const fitToMusic = () => {
 		try {
 			const end = Math.max(0, ...project.audio.map((item) => item.start + item.duration));
@@ -837,10 +965,7 @@ export function WebStudio() {
 							className="play-button"
 							aria-label={playing ? "일시 정지" : "재생"}
 							disabled={!duration || busy}
-							onClick={() => {
-								if (time >= duration) setTime(0);
-								setPlaying(!playing);
-							}}
+							onClick={togglePlay}
 						>
 							{playing ? (
 								<Pause size={18} fill="currentColor" />
@@ -860,8 +985,7 @@ export function WebStudio() {
 						value={time}
 						disabled={!duration || busy}
 						onChange={(event) => {
-							setPlaying(false);
-							setTime(Number(event.target.value));
+							seekTo(Number(event.target.value));
 						}}
 					/>
 				</section>
@@ -885,10 +1009,7 @@ export function WebStudio() {
 								clip={selectedClip}
 								selection={selectedRegion}
 								onChange={updateClip}
-								onSeek={(position) => {
-									setTime(selectedClipStart + position);
-									setPlaying(false);
-								}}
+								onSeek={(position) => seekTo(selectedClipStart + position)}
 								onClose={() => setSelectedRegion(null)}
 							/>
 						)}
@@ -946,9 +1067,13 @@ export function WebStudio() {
 								)}
 								{selectedAsset.kind !== "image" && (
 									<NumberField
-										label="원본 시작 위치 (초)"
+										label={selectedClip ? "원본 구간 시작 (초)" : "원본 시작 위치 (초)"}
 										value={selectedItem.trimStart}
-										max={Math.max(0, selectedAsset.duration - 0.1)}
+										max={
+											selectedClip
+												? selectedClip.trimStart + selectedClip.duration
+												: Math.max(0, selectedAsset.duration - 0.1)
+										}
 										onChange={(trimStart) => {
 											const change = {
 												trimStart,
@@ -957,14 +1082,20 @@ export function WebStudio() {
 													selectedAsset.duration - trimStart,
 												),
 											};
-											if (selectedClip) updateClip(change);
-											else updateAudio(change);
+											if (selectedClip) {
+												const delta = trimStart - selectedClip.trimStart;
+												resizeTimelineClip(
+													selectedClip.id,
+													"start",
+													delta >= 0 ? clipSourceToOutputTime(selectedClip, delta) : delta,
+												);
+											} else updateAudio(change);
 										}}
 									/>
 								)}
 								<NumberField
 									label={selectedClip ? "원본 구간 길이 (초)" : "클립 길이 (초)"}
-									min={Math.min(0.1, selectedAsset.duration || 0.1)}
+									min={selectedClip ? 0 : Math.min(0.1, selectedAsset.duration || 0.1)}
 									max={
 										selectedAsset.kind === "image"
 											? 3600
@@ -973,7 +1104,14 @@ export function WebStudio() {
 									value={selectedItem.duration}
 									onChange={(value) =>
 										selectedClip
-											? updateClip({ duration: value })
+											? resizeTimelineClip(
+													selectedClip.id,
+													"end",
+													value >= selectedClip.duration
+														? value - selectedClip.duration
+														: clipSourceToOutputTime(selectedClip, value) -
+																getClipOutputDuration(selectedClip),
+												)
 											: updateAudio({ duration: value })
 									}
 								/>
@@ -1117,10 +1255,7 @@ export function WebStudio() {
 							time={time}
 							duration={duration}
 							onChange={editProject}
-							onSeek={(position) => {
-								setTime(position);
-								setPlaying(false);
-							}}
+							onSeek={seekTo}
 							onImport={(file) => void importSubtitles(file)}
 							onExport={exportSubtitles}
 						/>
@@ -1139,6 +1274,26 @@ export function WebStudio() {
 				<div className="timeline-toolbar">
 					<div>
 						<h2>타임라인</h2>
+						<button
+							type="button"
+							className="add-region-button"
+							disabled={!project.clips.length || busy}
+							onClick={splitClip}
+							title="S"
+						>
+							<Scissors size={15} />
+							재생 위치에서 나누기
+						</button>
+						<button
+							type="button"
+							className="add-region-button"
+							disabled={(!activeRange && !selectedItem && !selectedRegion) || busy}
+							onClick={deleteSelection}
+							title="Delete"
+						>
+							<Trash2 size={15} />
+							선택 항목 삭제
+						</button>
 						<button
 							type="button"
 							className="add-region-button"
@@ -1188,6 +1343,84 @@ export function WebStudio() {
 						<ArrowRight size={14} />
 					</button>
 				</div>
+				<fieldset className="timeline-selection-tools" disabled={busy || !duration}>
+					<div className="timeline-selection-heading">
+						<strong>편집 구간</strong>
+						<span>
+							{activeRange
+								? `${formatTime(activeRange.start)} → ${formatTime(activeRange.end)} · ${(activeRange.end - activeRange.start).toFixed(2)}초`
+								: "구간 선택 줄을 드래그하거나 시작·끝을 지정하세요"}
+						</span>
+					</div>
+					<div className="timeline-range-controls">
+						<NumberField
+							label="선택 시작 (초)"
+							value={range?.start ?? time}
+							max={duration}
+							onChange={(start) =>
+								changeRange({ start, end: range?.end ?? Math.min(duration, start + 1) })
+							}
+						/>
+						<NumberField
+							label="선택 끝 (초)"
+							value={range?.end ?? time}
+							max={duration}
+							onChange={(end) => changeRange({ start: range?.start ?? Math.min(time, end), end })}
+						/>
+						<button type="button" onClick={markRangeStart} title="I">
+							현재 위치를 시작으로
+						</button>
+						<button type="button" onClick={markRangeEnd} title="O">
+							현재 위치를 끝으로
+						</button>
+						<button
+							type="button"
+							disabled={!selectedClip}
+							onClick={() => {
+								if (selectedClip)
+									changeRange({
+										start: selectedClipStart,
+										end: selectedClipStart + getClipOutputDuration(selectedClip),
+									});
+							}}
+						>
+							클립 구간 선택
+						</button>
+						<button type="button" disabled={!range} onClick={() => changeRange(null)}>
+							구간 선택 해제
+						</button>
+					</div>
+					<div className="timeline-range-actions">
+						<button
+							type="button"
+							disabled={!activeRange}
+							onClick={() => {
+								if (!activeRange) return;
+								setTime(activeRange.start);
+								setPlaybackRange(activeRange);
+								setPlaying(true);
+							}}
+						>
+							<Play size={14} />
+							선택 구간 재생
+						</button>
+						<button type="button" disabled={!activeRange} onClick={deleteRange}>
+							<Scissors size={14} />
+							선택 영상 구간 삭제
+						</button>
+						<button type="button" onClick={() => seekTo(time - 1 / 30)} title="←">
+							이전 프레임
+						</button>
+						<button type="button" onClick={() => seekTo(time + 1 / 30)} title="→">
+							다음 프레임
+						</button>
+						<NumberField label="재생 위치 (초)" value={time} max={duration} onChange={seekTo} />
+					</div>
+					<p className="field-note">
+						선택 후 + 돋보기·+ 속도를 누르면 해당 범위에 적용됩니다. 영상 구간 삭제·길이 조절 시 뒤
+						장면의 위치가 바뀝니다. 배경음악·시간 자막은 기존 시간에 남으므로 편집 후 확인하세요.
+					</p>
+				</fieldset>
 				{project.clips.length > 0 && (
 					<VisualTimeline
 						project={project}
@@ -1195,23 +1428,25 @@ export function WebStudio() {
 						time={time}
 						selectedClipId={selected}
 						selection={selectedRegion}
+						range={activeRange}
+						onRangeChange={changeRange}
+						onResizeClip={resizeTimelineClip}
+						onPlayFrom={playFrom}
+						playing={playing}
 						disabled={busy}
 						onSelectClip={(id, start) => {
 							setSelected(id);
 							setSelectedRegion(null);
-							setTime(start);
-							setPlaying(false);
+							setRange(null);
+							seekTo(start);
 						}}
 						onSelectRegion={(selection, position) => {
 							setSelected(selection.clipId);
 							setSelectedRegion(selection);
-							setTime(position);
-							setPlaying(false);
+							setRange(null);
+							seekTo(position);
 						}}
-						onSeek={(position) => {
-							setTime(position);
-							setPlaying(false);
-						}}
+						onSeek={seekTo}
 					/>
 				)}
 				<div className="timeline-content">
@@ -1249,8 +1484,9 @@ export function WebStudio() {
 								disabled={busy}
 								onClick={() => {
 									setSelected(item.id);
-									setPlaying(false);
-									setTime(Math.min(duration, item.start));
+									setSelectedRegion(null);
+									setRange(null);
+									seekTo(item.start);
 								}}
 							>
 								<Music2 size={16} />

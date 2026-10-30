@@ -24,6 +24,11 @@ import {
 	getProjectFrameCount,
 } from "/src/web/project.ts";
 import { drawFrame } from "/src/web/renderFrame.ts";
+import {
+	applyTimelineRegion,
+	deleteTimelineRange,
+	resizeClipEdge,
+} from "/src/web/timelineEditing.ts";
 
 const resultPanel = document.querySelector("#result");
 const button = document.querySelector("#run");
@@ -157,6 +162,224 @@ function expectedSourceTime(outputTime) {
 	return 4.5 + outputTime - 4;
 }
 
+// Hand-calculated after the editing scenario below. No production timing/zoom helpers
+// are used for these expectations, so an incorrect edit cannot validate itself.
+function expectedEditedSourceTime(time) {
+	if (time < 0.6) return 0.9 + time;
+	if (time < 1.6) return 1.5 + (time - 0.6) * 2;
+	if (time < 3.6) return 3.5 + (time - 1.6) * 0.5;
+	if (time < 4) return 4.5 + time - 3.6;
+	if (time < 4.2) return 4.9 + (time - 4) * 2;
+	return 0; // The final image is the source's still frame at zero.
+}
+
+function expectedEditedZoom(time) {
+	const region = [
+		{ start: 0.1, end: 1.35, ramp: 0.25, focusX: 0.65, focusY: 0.4 },
+		{ start: 3.6, end: 4.2, ramp: 0.25, focusX: 0.5, focusY: 0.5 },
+		{ start: 4.2, end: 4.4, ramp: 0.1, focusX: 0.5, focusY: 0.5 },
+	].find(({ start, end }) => time >= start && time < end);
+	if (!region) return { scale: 1, focusX: 0.5, focusY: 0.5 };
+	const phase = Math.max(
+		0,
+		Math.min(1, (time - region.start) / region.ramp, (region.end - time) / region.ramp),
+	);
+	const scale = 1 + phase * phase * (3 - 2 * phase);
+	return {
+		scale,
+		focusX: Math.max(0.5 / scale, Math.min(1 - 0.5 / scale, region.focusX)),
+		focusY: Math.max(0.5 / scale, Math.min(1 - 0.5 / scale, region.focusY)),
+	};
+}
+
+function cameraReference(source, { scale, focusX, focusY }) {
+	const canvas = makeCanvas();
+	const context = canvas.getContext("2d");
+	context.translate(WIDTH / 2 - focusX * WIDTH * scale, HEIGHT / 2 - focusY * HEIGHT * scale);
+	context.scale(scale, scale);
+	context.drawImage(source, 0, 0, WIDTH, HEIGHT);
+	return canvas;
+}
+
+function editedMarkerError(canvas, sourceTime, zoom) {
+	const centerX = WIDTH / 2 + (170 + sourceTime * 52 - zoom.focusX * WIDTH) * zoom.scale;
+	const centerY = HEIGHT / 2 + (210 - zoom.focusY * HEIGHT) * zoom.scale;
+	const row = canvas.getContext("2d").getImageData(0, Math.round(centerY), WIDTH, 1).data;
+	const columns = [];
+	for (let x = 0; x < WIDTH; x++)
+		if (row[x * 4] > 225 && row[x * 4 + 1] > 225 && row[x * 4 + 2] > 225) columns.push(x);
+	assert(columns.length > 20, `Edited source marker is absent at source ${sourceTime}`);
+	const expectedCenter =
+		(Math.max(0, centerX - 15 * zoom.scale) + Math.min(WIDTH, centerX + 15 * zoom.scale)) / 2 - 0.5;
+	return Math.abs((columns[0] + columns.at(-1)) / 2 - expectedCenter);
+}
+
+function captionPixelBounds(canvas) {
+	const data = pixels(canvas);
+	let count = 0;
+	let minY = HEIGHT;
+	let maxY = -1;
+	for (let index = 0; index < data.length; index += 4) {
+		// Only the yellow subtitle glyphs have this color in the generated fixture.
+		if (data[index] > 170 && data[index + 1] > 160 && data[index + 2] < 140) {
+			const y = Math.floor(index / 4 / WIDTH);
+			count++;
+			minY = Math.min(minY, y);
+			maxY = Math.max(maxY, y);
+		}
+	}
+	return { count, minY, maxY };
+}
+
+function stableProjectJson(project) {
+	return JSON.stringify(project, (_key, value) =>
+		value && typeof value === "object" && !Array.isArray(value)
+			? Object.fromEntries(
+					Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
+				)
+			: value,
+	);
+}
+
+async function checkEditedExport(workspace, bitmap, sourceSink, inputs) {
+	const { project, assets } = workspace;
+	const movie = assets.find((asset) => asset.id === project.clips[0].assetId);
+	assert(movie, "Edited fixture video asset is missing");
+	const trimmed = resizeClipEdge(
+		resizeClipEdge(project.clips[0], movie, "start", 0.4),
+		movie,
+		"end",
+		-0.6,
+	);
+	assert(
+		Math.abs(trimmed.trimStart - 0.9) < 1e-9 && Math.abs(trimmed.duration - 5) < 1e-9,
+		"Edge trimming did not keep source 0.9–5.9",
+	);
+	let edited = { ...project, clips: [trimmed, project.clips[1]] };
+	assert(Math.abs(getProjectDuration(edited) - 5.8) < 1e-9, "Wrong duration after trimming");
+	// The video now occupies 0–5; cutting 4.4–5.2 removes its tail and the image's head.
+	edited = deleteTimelineRange(edited, { start: 4.4, end: 5.2 }, assets);
+	assert(
+		edited.clips.length === 2 &&
+			Math.abs(edited.clips[0].duration - 4.4) < 1e-9 &&
+			Math.abs(edited.clips[1].duration - 0.6) < 1e-9 &&
+			edited.clips[1].trimStart === 0 &&
+			Math.abs(getProjectDuration(edited) - 5) < 1e-9,
+		"Cross-clip deletion kept the wrong source fragments",
+	);
+	// Select against the original 5-second layout: 0.4 s in each clip becomes 0.2 s.
+	const speed = applyTimelineRegion(edited, "speed", { start: 4, end: 4.8 });
+	const zoom = applyTimelineRegion(speed.project, "zoom", { start: 3.6, end: 4.4 });
+	edited = zoom.project;
+	assert(
+		speed.selection && zoom.selection,
+		"Applying selected regions did not select a new effect",
+	);
+	assert(Math.abs(getProjectDuration(edited) - 4.6) < 1e-9, "Edited duration differs from 4.6 s");
+	assert(getProjectFrameCount(edited) === 138, "Edited frame count differs from 138");
+	assert(
+		JSON.stringify(edited.captions) === JSON.stringify(project.captions) &&
+			JSON.stringify(edited.audio) === JSON.stringify(project.audio),
+		"Visual edits moved absolute-time captions or background audio",
+	);
+	const backup = encodeWorkspace({ project: edited, assets });
+	const restored = await decodeWorkspace(backup);
+	assert(
+		stableProjectJson(restored.project) === stableProjectJson(edited),
+		"Edited project effects did not survive a backup round trip",
+	);
+	attachBlob("#edited-backup", backup, "donqui-edited-timeline-qa.donqui");
+	const exported = await exportVideo(edited, assets, {
+		onProgress: (value) => {
+			resultPanel.textContent = `Encoding trimmed/cut/selected timeline: ${Math.round(value * 100)}%`;
+		},
+	});
+	attachBlob("#edited-download", exported.blob, `donqui-edited-timeline-qa.${exported.extension}`);
+	const input = new Input({ source: new BlobSource(exported.blob), formats: ALL_FORMATS });
+	inputs.push(input);
+	const track = await input.getPrimaryVideoTrack();
+	assert(track, "Edited output video track is missing");
+	const duration = await input.computeDuration();
+	assert(Math.abs(duration - 4.6) < 0.08, `Edited output duration is ${duration}, expected 4.6`);
+	const timestamps = [];
+	for await (const packet of new EncodedPacketSink(track).packets())
+		timestamps.push(packet.timestamp);
+	timestamps.sort((left, right) => left - right);
+	assert(timestamps.length === 138, `Edited export has ${timestamps.length} frames, expected 138`);
+	const timestampError = Math.max(...timestamps.map((time, index) => Math.abs(time - index / FPS)));
+	assert(timestampError < 0.001, `Edited frame timestamps are irregular: ${timestampError}`);
+	const sink = new CanvasSink(track);
+	const summary = { duration, frames: timestamps.length, timestampError, samples: [], audio: [] };
+	for (const time of [
+		0, 0.4, 0.6, 0.9, 1.2, 1.4, 1.8, 2.3, 3.2, 3.6, 3.9, 4.1, 4.2, 4.3, 4.4, 4.5,
+	]) {
+		const frame = await sink.getCanvas(time + 0.00001);
+		assert(frame, `Edited output frame is missing at ${time}`);
+		const outputTime = Math.round(frame.timestamp * FPS) / FPS;
+		assert(Math.abs(outputTime - time) < 0.001, `Wrong edited frame selected at ${time}`);
+		const sourceTime = expectedEditedSourceTime(outputTime);
+		const image = outputTime >= 4.2;
+		const source = image ? bitmap : (await sourceSink.getCanvas(sourceTime + 0.00001))?.canvas;
+		assert(source, `Edited source frame is missing at ${sourceTime}`);
+		const camera = expectedEditedZoom(outputTime);
+		const expected = reference(
+			edited,
+			cameraReference(source, camera),
+			{ ...edited.clips[image ? 1 : 0], effect: "none", zoomRegions: [], speedRegions: [] },
+			0,
+			outputTime,
+		);
+		const previewError = difference(pixels(frame.canvas), pixels(expected));
+		assert(
+			previewError < 8,
+			`Edited camera/source/caption pixels differ at ${time}: ${previewError}`,
+		);
+		// The original off-center zoom covers the marker with the subtitle; other
+		// frames independently verify the marker's projected position and the cut to the image.
+		const markerError =
+			time >= 0.1 && time < 1.35 ? null : editedMarkerError(frame.canvas, sourceTime, camera);
+		assert(
+			markerError === null || markerError < 4,
+			`Edited marker is misplaced at ${time}: ${markerError}`,
+		);
+		const caption = captionPixelBounds(frame.canvas);
+		const captionVisible = (time >= 0.6 && time < 1.6) || (time >= 2.2 && time < 3.8) || image;
+		assert(
+			captionVisible
+				? caption.count > 25 && caption.minY > 275 && caption.maxY < 335
+				: caption.count < 10,
+			`Edited caption visibility/position differs at ${time}: ${JSON.stringify(caption)}`,
+		);
+		summary.samples.push({
+			outputTime,
+			sourceTime,
+			image,
+			scale: camera.scale,
+			previewError,
+			markerError,
+			caption,
+		});
+	}
+	const audio = await input.getPrimaryAudioTrack();
+	assert(audio, "Edited audio track is missing");
+	for (const [start, end, frequency] of [
+		[0.2, 0.4, 440],
+		[0.8, 1.2, 880],
+		[1.8, 2, 220],
+		[4.05, 4.15, 880],
+	]) {
+		const amplitude = frequencyAmplitude(await audioSamples(audio, start, end), frequency);
+		assert(amplitude > 0.07, `Edited ${frequency} Hz audio is absent at ${start}: ${amplitude}`);
+		summary.audio.push({ start, end, frequency, amplitude });
+	}
+	const silent = await audioSamples(audio, 4.3, 4.5);
+	summary.silenceRms = Math.sqrt(
+		silent.reduce((sum, value) => sum + value * value, 0) / silent.length,
+	);
+	assert(summary.silenceRms < 0.003, "Edited video audio leaks past the new image boundary");
+	return summary;
+}
+
 function attachBlob(id, blob, name) {
 	const url = URL.createObjectURL(blob);
 	urls.push(url);
@@ -197,7 +420,8 @@ button.onclick = async () => {
 	resultPanel.dataset.status = "RUNNING";
 	for (const url of urls) URL.revokeObjectURL(url);
 	urls.length = 0;
-	for (const id of ["#download", "#backup"]) document.querySelector(id).hidden = true;
+	for (const id of ["#download", "#backup", "#edited-download", "#edited-backup"])
+		document.querySelector(id).hidden = true;
 	const inputs = [];
 	let bitmap;
 	const report = {};
@@ -420,6 +644,7 @@ button.onclick = async () => {
 			silenceRms,
 		};
 		report.backupBytes = backup.size;
+		report.editing = await checkEditedExport(workspace, bitmap, sourceSink, inputs);
 		resultPanel.dataset.status = "PASS";
 		resultPanel.textContent = JSON.stringify({ status: "PASS", ...report }, null, 2);
 	} catch (error) {
