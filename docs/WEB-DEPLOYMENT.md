@@ -2,6 +2,8 @@
 
 실제 실행·내보내기 검사와 미검증 범위는 [웹 검증 기록](WEB-VALIDATION.md)에 정리했습니다.
 
+현재 공개 웹 버전: **[donqui-web.vercel.app](https://donqui-web.vercel.app/)**. `main`에 연결된 Vercel Git 연동으로 자동 배포됩니다.
+
 웹 버전은 별도 설치 없이 브라우저에서 미디어를 불러와 편집하고 내보내는 정적 React 앱입니다. Vercel은 HTML·JavaScript·아이콘을 제공하고, 영상 처리와 저장은 방문자의 브라우저에서 실행합니다. 서버, 데이터베이스, API 키, FFmpeg 설치가 필요하지 않습니다.
 
 기존 Electron 앱은 `npm run dev`, `npm run build`로 계속 실행·빌드합니다. 웹 전용 명령은 `:web` 접미사를 사용하므로 데스크톱용 네이티브 바이너리나 Remotion 렌더링 준비 작업을 실행하지 않습니다.
